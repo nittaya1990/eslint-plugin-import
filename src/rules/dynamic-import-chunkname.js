@@ -5,6 +5,8 @@ module.exports = {
   meta: {
     type: 'suggestion',
     docs: {
+      category: 'Style guide',
+      description: 'Enforce a leading comment with the webpackChunkName for dynamic imports.',
       url: docsUrl('dynamic-import-chunkname'),
     },
     schema: [{
@@ -27,10 +29,10 @@ module.exports = {
   create(context) {
     const config = context.options[0];
     const { importFunctions = [] } = config || {};
-    const { webpackChunknameFormat = '[0-9a-zA-Z-_/.]+' } = config || {};
+    const { webpackChunknameFormat = '([0-9a-zA-Z-_/.]|\\[(request|index)\\])+' } = config || {};
 
     const paddedCommentRegex = /^ (\S[\s\S]+\S) $/;
-    const commentStyleRegex = /^( \w+: (["'][^"']*["']|\d+|false|true),?)+ $/;
+    const commentStyleRegex = /^( ((webpackChunkName: .+)|((webpackPrefetch|webpackPreload): (true|false|-?[0-9]+))|(webpackIgnore: (true|false))|((webpackInclude|webpackExclude): \/.*\/)|(webpackMode: ["'](lazy|lazy-once|eager|weak)["'])|(webpackExports: (['"]\w+['"]|\[(['"]\w+['"], *)+(['"]\w+['"]*)\]))),?)+ $/;
     const chunkSubstrFormat = ` webpackChunkName: ["']${webpackChunknameFormat}["'],? `;
     const chunkSubstrRegex = new RegExp(chunkSubstrFormat);
 
@@ -83,7 +85,7 @@ module.exports = {
           context.report({
             node,
             message:
-              `dynamic imports require a leading comment in the form /*${chunkSubstrFormat}*/`,
+              `dynamic imports require a "webpack" comment with valid syntax`,
           });
           return;
         }

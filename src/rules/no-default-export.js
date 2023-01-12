@@ -4,6 +4,8 @@ module.exports = {
   meta: {
     type: 'suggestion',
     docs: {
+      category: 'Style guide',
+      description: 'Forbid default exports.',
       url: docsUrl('no-default-export'),
     },
     schema: [],
@@ -16,23 +18,21 @@ module.exports = {
     }
 
     const preferNamed = 'Prefer named exports.';
-    const noAliasDefault = ({ local }) =>
-      `Do not alias \`${local.name}\` as \`default\`. Just export ` +
-      `\`${local.name}\` itself instead.`;
+    const noAliasDefault = ({ local }) => `Do not alias \`${local.name}\` as \`default\`. Just export \`${local.name}\` itself instead.`;
 
     return {
       ExportDefaultDeclaration(node) {
-        context.report({ node, message: preferNamed });
+        const { loc } = context.getSourceCode().getFirstTokens(node)[1] || {};
+        context.report({ node, message: preferNamed, loc });
       },
 
       ExportNamedDeclaration(node) {
-        node.specifiers.forEach(specifier => {
-          if (specifier.type === 'ExportDefaultSpecifier' &&
-              specifier.exported.name === 'default') {
-            context.report({ node, message: preferNamed });
-          } else if (specifier.type === 'ExportSpecifier' &&
-              specifier.exported.name === 'default') {
-            context.report({ node, message: noAliasDefault(specifier) });
+        node.specifiers.filter(specifier => (specifier.exported.name || specifier.exported.value) === 'default').forEach(specifier => {
+          const { loc } = context.getSourceCode().getFirstTokens(node)[1] || {};
+          if (specifier.type === 'ExportDefaultSpecifier') {
+            context.report({ node, message: preferNamed, loc });
+          } else if (specifier.type === 'ExportSpecifier') {
+            context.report({ node, message: noAliasDefault(specifier), loc  });
           }
         });
       },

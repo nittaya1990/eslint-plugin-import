@@ -1,11 +1,11 @@
 import { RuleTester } from 'eslint';
-import { test } from '../utils';
+import { parsers, test, testVersion } from '../utils';
 
 const ruleTester = new RuleTester();
 const rule = require('rules/no-named-export');
 
 ruleTester.run('no-named-export', rule, {
-  valid: [
+  valid: [].concat(
     test({
       code: 'export default function bar() {};',
     }),
@@ -14,7 +14,7 @@ ruleTester.run('no-named-export', rule, {
     }),
     test({
       code: 'export default from "foo.js"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
 
     // no exports at all
@@ -27,7 +27,13 @@ ruleTester.run('no-named-export', rule, {
     test({
       code: `import {default as foo} from './foo';`,
     }),
-  ],
+
+    // es2022: Arbitrary module namespae identifier names
+    testVersion('>= 8.7', () => ({
+      code: 'let foo; export { foo as "default" }',
+      parserOptions: { ecmaVersion: 2022 },
+    })),
+  ),
   invalid: [
     test({
       code: `
@@ -146,7 +152,7 @@ ruleTester.run('no-named-export', rule, {
     }),
     test({
       code: 'export { a, b } from "foo.js"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: [{
         type: 'ExportNamedDeclaration',
         message: 'Named exports are not allowed.',
@@ -154,7 +160,7 @@ ruleTester.run('no-named-export', rule, {
     }),
     test({
       code: `export type UserId = number;`,
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: [{
         type: 'ExportNamedDeclaration',
         message: 'Named exports are not allowed.',
@@ -162,7 +168,7 @@ ruleTester.run('no-named-export', rule, {
     }),
     test({
       code: 'export foo from "foo.js"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: [{
         type: 'ExportNamedDeclaration',
         message: 'Named exports are not allowed.',
@@ -170,7 +176,7 @@ ruleTester.run('no-named-export', rule, {
     }),
     test({
       code: `export Memory, { MemoryValue } from './Memory'`,
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: [{
         type: 'ExportNamedDeclaration',
         message: 'Named exports are not allowed.',

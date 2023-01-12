@@ -9,14 +9,19 @@ import { isExternalModule } from '../core/importType';
 import moduleVisitor, { makeOptionsSchema } from 'eslint-module-utils/moduleVisitor';
 import docsUrl from '../docsUrl';
 
-// todo: cache cycles / deep relationships for faster repeat evaluation
+const traversed = new Set();
+
 module.exports = {
   meta: {
     type: 'suggestion',
-    docs: { url: docsUrl('no-cycle') },
+    docs: {
+      category: 'Static analysis',
+      description: 'Forbid a module from importing a module with a dependency path back to itself.',
+      url: docsUrl('no-cycle'),
+    },
     schema: [makeOptionsSchema({
       maxDepth: {
-        oneOf: [
+        anyOf: [
           {
             description: 'maximum dependency depth to traverse',
             type: 'integer',
@@ -33,6 +38,11 @@ module.exports = {
         type: 'boolean',
         default: false,
       },
+      allowUnsafeDynamicCyclicDependency: {
+        description: 'Allow cyclic dependency if there is at least one dynamic import in the chain',
+        type: 'boolean',
+        default: false,
+      },
     })],
   },
 
@@ -44,14 +54,20 @@ module.exports = {
     const maxDepth = typeof options.maxDepth === 'number' ? options.maxDepth : Infinity;
     const ignoreModule = (name) => options.ignoreExternal && isExternalModule(
       name,
-      context.settings,
       resolve(name, context),
-      context
+      context,
     );
 
     function checkSourceValue(sourceNode, importer) {
       if (ignoreModule(sourceNode.value)) {
         return; // ignore external modules
+      }
+      if (options.allowUnsafeDynamicCyclicDependency && (
+        // Ignore `import()`
+        importer.type === 'ImportExpression' ||
+        // `require()` calls are always checked (if possible)
+        (importer.type === 'CallExpression' && importer.callee.name !== 'require'))) {
+        return; // cycle via dynamic import allowed by config
       }
 
       if (
@@ -76,7 +92,6 @@ module.exports = {
       }
 
       const untraversed = [{ mget: () => imported, route:[] }];
-      const traversed = new Set();
       function detectCycle({ mget, route }) {
         const m = mget();
         if (m == null) return;
@@ -88,8 +103,14 @@ module.exports = {
           const toTraverse = [...declarations].filter(({ source, isOnlyImportingTypes }) =>
             !ignoreModule(source.value) &&
             // Ignore only type imports
-            !isOnlyImportingTypes
+            !isOnlyImportingTypes,
           );
+
+          /*
+          If cyclic dependency is allowed via dynamic import, skip checking if any module is imported dynamically
+          */
+          if (options.allowUnsafeDynamicCyclicDependency && toTraverse.some(d => d.dynamic)) return;
+
           /*
           Only report as a cycle if there are any import declarations that are considered by
           the rule. For example:
@@ -121,7 +142,11 @@ module.exports = {
       }
     }
 
-    return moduleVisitor(checkSourceValue, context.options[0]);
+    return Object.assign(moduleVisitor(checkSourceValue, context.options[0]), {
+      'Program:exit': () => {
+        traversed.clear();
+      },
+    });
   },
 };
 

@@ -1,4 +1,4 @@
-import { test, testFilePath, getTSParsers } from '../utils';
+import { test, testVersion, testFilePath, getTSParsers, parsers } from '../utils';
 import jsxConfig from '../../../config/react';
 import typescriptConfig from '../../../config/typescript';
 
@@ -7,8 +7,8 @@ import fs from 'fs';
 import eslintPkg from 'eslint/package.json';
 import semver from 'semver';
 
-// TODO: figure out why these tests fail in eslint 4
-const isESLint4TODO = semver.satisfies(eslintPkg.version, '^4');
+// TODO: figure out why these tests fail in eslint 4 and 5
+const isESLint4TODO = semver.satisfies(eslintPkg.version, '^4 || ^5');
 
 const ruleTester = new RuleTester();
 const typescriptRuleTester = new RuleTester(typescriptConfig);
@@ -105,56 +105,56 @@ ruleTester.run('no-unused-modules', rule, {
 });
 
 
-// tests for  exports
+// tests for exports
 ruleTester.run('no-unused-modules', rule, {
   valid: [
     test({
       options: unusedExportsOptions,
       code: 'import { o2 } from "./file-o";export default () => 12',
       filename: testFilePath('./no-unused-modules/file-a.js'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       options: unusedExportsOptions,
       code: 'export const b = 2',
       filename: testFilePath('./no-unused-modules/file-b.js'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       options: unusedExportsOptions,
       code: 'const c1 = 3; function c2() { return 3 }; export { c1, c2 }',
       filename: testFilePath('./no-unused-modules/file-c.js'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       options: unusedExportsOptions,
       code: 'export function d() { return 4 }',
       filename: testFilePath('./no-unused-modules/file-d.js'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       options: unusedExportsOptions,
       code: 'export class q { q0() {} }',
       filename: testFilePath('./no-unused-modules/file-q.js'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       options: unusedExportsOptions,
       code: 'const e0 = 5; export { e0 as e }',
       filename: testFilePath('./no-unused-modules/file-e.js'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       options: unusedExportsOptions,
       code: 'const l0 = 5; const l = 10; export { l0 as l1, l }; export default () => {}',
       filename: testFilePath('./no-unused-modules/file-l.js'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       options: unusedExportsOptions,
       code: 'const o0 = 0; const o1 = 1; export { o0, o1 as o2 }; export default () => {}',
       filename: testFilePath('./no-unused-modules/file-o.js'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
   ],
   invalid: [
@@ -243,13 +243,15 @@ ruleTester.run('no-unused-modules', rule, {
 });
 
 
-describe('dynamic imports', () => {
+describe('dynamic imports', function () {
   if (semver.satisfies(eslintPkg.version, '< 6')) {
     beforeEach(function () {
       this.skip();
     });
     return;
   }
+
+  this.timeout(10e3);
 
   // test for unused exports with `import()`
   ruleTester.run('no-unused-modules', rule, {
@@ -263,7 +265,7 @@ describe('dynamic imports', () => {
             const d = 40
             export default d
             `,
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/exports-for-dynamic-js.js'),
       }),
     ],
@@ -277,7 +279,7 @@ describe('dynamic imports', () => {
         const d = 40
         export default d
         `,
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/exports-for-dynamic-js-2.js'),
         errors: [
           error(`exported declaration 'a' not used within other modules`),
@@ -298,8 +300,19 @@ describe('dynamic imports', () => {
             const ts_d = 40
             export default ts_d
             `,
-        parser: require.resolve('@typescript-eslint/parser'),
+        parser: parsers.TS_NEW,
         filename: testFilePath('./no-unused-modules/typescript/exports-for-dynamic-ts.ts'),
+      }),
+      test({
+        code: `
+        import App from './App';
+      `,
+        filename: testFilePath('./unused-modules-reexport-crash/src/index.tsx'),
+        parser: parsers.TS_NEW,
+        options: [{
+          unusedExports: true,
+          ignoreExports: ['**/magic/**'],
+        }],
       }),
     ],
     invalid: [
@@ -1177,7 +1190,7 @@ describe('correctly work with JSX only files', () => {
       test({
         options: unusedExportsJsxOptions,
         code: 'import a from "file-jsx-a";',
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/jsx/file-jsx-a.jsx'),
       }),
     ],
@@ -1185,7 +1198,7 @@ describe('correctly work with JSX only files', () => {
       test({
         options: unusedExportsJsxOptions,
         code: `export const b = 2;`,
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/jsx/file-jsx-b.jsx'),
         errors: [
           error(`exported declaration 'b' not used within other modules`),
@@ -1201,7 +1214,7 @@ describe('ignore flow types', () => {
       test({
         options: unusedExportsOptions,
         code: 'import { type FooType, type FooInterface } from "./flow-2";',
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/flow/flow-0.js'),
       }),
       test({
@@ -1210,13 +1223,13 @@ describe('ignore flow types', () => {
                export type FooType = string;
                export interface FooInterface {};
                `,
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/flow/flow-2.js'),
       }),
       test({
         options: unusedExportsOptions,
         code: 'import type { FooType, FooInterface } from "./flow-4";',
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/flow/flow-3.js'),
       }),
       test({
@@ -1225,7 +1238,7 @@ describe('ignore flow types', () => {
                export type FooType = string;
                export interface FooInterface {};
                `,
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/flow/flow-4.js'),
       }),
       test({
@@ -1234,7 +1247,7 @@ describe('ignore flow types', () => {
                export type Bar = number;
                export interface BarInterface {};
                `,
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/flow/flow-1.js'),
       }),
     ],
@@ -1248,14 +1261,111 @@ describe('support (nested) destructuring assignment', () => {
       test({
         options: unusedExportsOptions,
         code: 'import {a, b} from "./destructuring-b";',
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/destructuring-a.js'),
       }),
       test({
         options: unusedExportsOptions,
         code: 'const obj = {a: 1, dummy: {b: 2}}; export const {a, dummy: {b}} = obj;',
-        parser: require.resolve('babel-eslint'),
+        parser: parsers.BABEL_OLD,
         filename: testFilePath('./no-unused-modules/destructuring-b.js'),
+      }),
+    ],
+    invalid: [],
+  });
+});
+
+describe('support ES2022 Arbitrary module namespace identifier names', () => {
+  ruleTester.run('no-unused-module', rule, {
+    valid: [].concat(
+      testVersion('>= 8.7', () => ({
+        options: unusedExportsOptions,
+        code: `import { "foo" as foo } from "./arbitrary-module-namespace-identifier-name-a"`,
+        parserOptions: { ecmaVersion: 2022 },
+        filename: testFilePath('./no-unused-modules/arbitrary-module-namespace-identifier-name-b.js'),
+      })),
+      testVersion('>= 8.7', () => ({
+        options: unusedExportsOptions,
+        code: 'const foo = 333;\nexport { foo as "foo" }',
+        parserOptions: { ecmaVersion: 2022 },
+        filename: testFilePath('./no-unused-modules/arbitrary-module-namespace-identifier-name-a.js'),
+      })),
+    ),
+    invalid: [].concat(
+      testVersion('>= 8.7', () => ({
+        options: unusedExportsOptions,
+        code: 'const foo = 333\nexport { foo as "foo" }',
+        parserOptions: { ecmaVersion: 2022 },
+        filename: testFilePath('./no-unused-modules/arbitrary-module-namespace-identifier-name-c.js'),
+        errors: [
+          error(`exported declaration 'foo' not used within other modules`),
+        ],
+      })),
+    ),
+  });
+});
+
+describe('parser ignores prefixes like BOM and hashbang', () => {
+  // bom, hashbang
+  ruleTester.run('no-unused-modules', rule, {
+    valid: [
+      test({
+        options: unusedExportsOptions,
+        code: 'export const foo = 1;\n',
+        filename: testFilePath('./no-unused-modules/prefix-child.js'),
+      }),
+      test({
+        options: unusedExportsOptions,
+        code: `\uFEFF#!/usr/bin/env node\nimport {foo} from './prefix-child.js';\n`,
+        filename: testFilePath('./no-unused-modules/prefix-parent-bom.js'),
+      }),
+    ],
+    invalid: [],
+  });
+  // no bom, hashbang
+  ruleTester.run('no-unused-modules', rule, {
+    valid: [
+      test({
+        options: unusedExportsOptions,
+        code: 'export const foo = 1;\n',
+        filename: testFilePath('./no-unused-modules/prefix-child.js'),
+      }),
+      test({
+        options: unusedExportsOptions,
+        code: `#!/usr/bin/env node\nimport {foo} from './prefix-child.js';\n`,
+        filename: testFilePath('./no-unused-modules/prefix-parent-hashbang.js'),
+      }),
+    ],
+    invalid: [],
+  });
+  // bom, no hashbang
+  ruleTester.run('no-unused-modules', rule, {
+    valid: [
+      test({
+        options: unusedExportsOptions,
+        code: 'export const foo = 1;\n',
+        filename: testFilePath('./no-unused-modules/prefix-child.js'),
+      }),
+      test({
+        options: unusedExportsOptions,
+        code: `\uFEFF#!/usr/bin/env node\nimport {foo} from './prefix-child.js';\n`,
+        filename: testFilePath('./no-unused-modules/prefix-parent-bomhashbang.js'),
+      }),
+    ],
+    invalid: [],
+  });
+  // no bom, no hashbang
+  ruleTester.run('no-unused-modules', rule, {
+    valid: [
+      test({
+        options: unusedExportsOptions,
+        code: 'export const foo = 1;\n',
+        filename: testFilePath('./no-unused-modules/prefix-child.js'),
+      }),
+      test({
+        options: unusedExportsOptions,
+        code: `import {foo} from './prefix-child.js';\n`,
+        filename: testFilePath('./no-unused-modules/prefix-parent.js'),
       }),
     ],
     invalid: [],

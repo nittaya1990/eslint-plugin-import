@@ -1,9 +1,13 @@
 # Change Log
 All notable changes to this resolver will be documented in this file.
-This project adheres to [Semantic Versioning](http://semver.org/).
-This change log adheres to standards from [Keep a CHANGELOG](http://keepachangelog.com).
+This project adheres to [Semantic Versioning](https://semver.org/).
+This change log adheres to standards from [Keep a CHANGELOG](https://keepachangelog.com).
 
 ## Unreleased
+
+## v0.3.7 - 2023-01-11
+### Changed
+- [Refactor] use `is-core-module` directly
 
 ## v0.3.6 - 2021-08-15
 ### Fixed

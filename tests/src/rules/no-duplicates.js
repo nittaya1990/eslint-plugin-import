@@ -1,5 +1,6 @@
 import * as path from 'path';
-import { test as testUtil, getNonDefaultParsers } from '../utils';
+import { test as testUtil, getNonDefaultParsers, parsers, tsVersionSatisfies, typescriptEslintParserSatisfies } from '../utils';
+import jsxConfig from '../../../config/react';
 
 import { RuleTester } from 'eslint';
 import eslintPkg from 'eslint/package.json';
@@ -26,7 +27,7 @@ ruleTester.run('no-duplicates', rule, {
     // #225: ignore duplicate if is a flow type import
     test({
       code: "import { x } from './foo'; import type { y } from './foo'",
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
 
     // #1107: Using different query strings that trigger different webpack loaders.
@@ -107,7 +108,7 @@ ruleTester.run('no-duplicates', rule, {
     test({
       code: "import type { x } from './foo'; import type { y } from './foo'",
       output: "import type { x , y } from './foo'; ",
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: ['\'./foo\' imported multiple times.', '\'./foo\' imported multiple times.'],
     }),
 
@@ -412,13 +413,51 @@ import {x,y} from './foo'
       output: "import Bar, { Foo } from './foo';\nexport const value = {}",
       errors: ['\'./foo\' imported multiple times.', '\'./foo\' imported multiple times.'],
     }),
+
+    test({
+      code: `
+        import {
+          DEFAULT_FILTER_KEYS,
+          BULK_DISABLED,
+        } from '../constants';
+        import React from 'react';
+        import {
+          BULK_ACTIONS_ENABLED
+        } from '../constants';
+        
+        const TestComponent = () => {
+          return <div>
+          </div>;
+        }
+        
+        export default TestComponent;
+      `,
+      output: `
+        import {
+          DEFAULT_FILTER_KEYS,
+          BULK_DISABLED,
+        
+          BULK_ACTIONS_ENABLED
+        } from '../constants';
+        import React from 'react';
+                
+        const TestComponent = () => {
+          return <div>
+          </div>;
+        }
+        
+        export default TestComponent;
+      `,
+      errors: ["'../constants' imported multiple times.", "'../constants' imported multiple times."],
+      ...jsxConfig,
+    }),
   ],
 });
 
 context('TypeScript', function () {
   getNonDefaultParsers()
     // Type-only imports were added in TypeScript ESTree 2.23.0
-    .filter((parser) => parser !== require.resolve('typescript-eslint-parser'))
+    .filter((parser) => parser !== parsers.TS_OLD)
     .forEach((parser) => {
       const parserConfig = {
         parser,
@@ -428,85 +467,224 @@ context('TypeScript', function () {
         },
       };
 
-      ruleTester.run('no-duplicates', rule, {
-        valid: [
+      const valid = [
         // #1667: ignore duplicate if is a typescript type import
-          test({
-            code: "import type { x } from './foo'; import y from './foo'",
-            ...parserConfig,
-          }),
-          test({
-            code: "import type x from './foo'; import type y from './bar'",
-            ...parserConfig,
-          }),
-          test({
-            code: "import type {x} from './foo'; import type {y} from './bar'",
-            ...parserConfig,
-          }),
-          test({
-            code: "import type x from './foo'; import type {y} from './foo'",
-            ...parserConfig,
-          }),
-          test({
-            code: `
-              import type {} from './module';
-              import {} from './module2';
-            `,
-            ...parserConfig,
-          }),
-        ],
-        invalid: [
-          test({
-            code: "import type x from './foo'; import type y from './foo'",
-            ...parserConfig,
-            errors: [
-              {
-                line: 1,
-                column: 20,
-                message: "'./foo' imported multiple times.",
-              },
-              {
-                line: 1,
-                column: 48,
-                message: "'./foo' imported multiple times.",
-              },
-            ],
-          }),
-          test({
-            code: "import type x from './foo'; import type x from './foo'",
-            output: "import type x from './foo'; ",
-            ...parserConfig,
-            errors: [
-              {
-                line: 1,
-                column: 20,
-                message: "'./foo' imported multiple times.",
-              },
-              {
-                line: 1,
-                column: 48,
-                message: "'./foo' imported multiple times.",
-              },
-            ],
-          }),
-          test({
-            code: "import type {x} from './foo'; import type {y} from './foo'",
-            ...parserConfig,
-            output: `import type {x,y} from './foo'; `,
-            errors: [
-              {
-                line: 1,
-                column: 22,
-                message: "'./foo' imported multiple times.",
-              },
-              {
-                line: 1,
-                column: 52,
-                message: "'./foo' imported multiple times.",
-              },
-            ],
-          }),
-        ],
+        test({
+          code: "import type { x } from './foo'; import y from './foo'",
+          ...parserConfig,
+        }),
+        test({
+          code: "import type x from './foo'; import type y from './bar'",
+          ...parserConfig,
+        }),
+        test({
+          code: "import type {x} from './foo'; import type {y} from './bar'",
+          ...parserConfig,
+        }),
+        test({
+          code: "import type x from './foo'; import type {y} from './foo'",
+          ...parserConfig,
+        }),
+        test({
+          code: `
+            import type {} from './module';
+            import {} from './module2';
+          `,
+          ...parserConfig,
+        }),
+        test({
+          code: `
+            import type { Identifier } from 'module';
+
+            declare module 'module2' {
+              import type { Identifier } from 'module';
+            }
+
+            declare module 'module3' {
+              import type { Identifier } from 'module';
+            }
+          `,
+          ...parserConfig,
+        }),
+      ].concat(!tsVersionSatisfies('>= 4.5') || !typescriptEslintParserSatisfies('>= 5.7.0') ? [] : [
+        // #2470: ignore duplicate if is a typescript inline type import
+        test({
+          code: "import { type x } from './foo'; import y from './foo'",
+          ...parserConfig,
+        }),
+        test({
+          code: "import { type x } from './foo'; import { y } from './foo'",
+          ...parserConfig,
+        }),
+        test({
+          code: "import { type x } from './foo'; import type y from 'foo'",
+          ...parserConfig,
+        }),
+      ]);
+
+      const invalid = [
+        test({
+          code: "import type x from './foo'; import type y from './foo'",
+          output: "import type x from './foo'; import type y from './foo'",
+          ...parserConfig,
+          errors: [
+            {
+              line: 1,
+              column: 20,
+              message: "'./foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 48,
+              message: "'./foo' imported multiple times.",
+            },
+          ],
+        }),
+        test({
+          code: "import type x from './foo'; import type x from './foo'",
+          output: "import type x from './foo'; ",
+          ...parserConfig,
+          errors: [
+            {
+              line: 1,
+              column: 20,
+              message: "'./foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 48,
+              message: "'./foo' imported multiple times.",
+            },
+          ],
+        }),
+        test({
+          code: "import type {x} from './foo'; import type {y} from './foo'",
+          ...parserConfig,
+          output: `import type {x,y} from './foo'; `,
+          errors: [
+            {
+              line: 1,
+              column: 22,
+              message: "'./foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 52,
+              message: "'./foo' imported multiple times.",
+            },
+          ],
+        }),
+      ].concat(!tsVersionSatisfies('>= 4.5') || !typescriptEslintParserSatisfies('>= 5.7.0') ? [] : [
+        test({
+          code: "import {type x} from './foo'; import type {y} from './foo'",
+          ...parserConfig,
+          options: [{ 'prefer-inline': false }],
+          output: `import {type x,y} from './foo'; `,
+          errors: [
+            {
+              line: 1,
+              column: 22,
+              message: "'./foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 52,
+              message: "'./foo' imported multiple times.",
+            },
+          ],
+        }),
+        test({
+          code: "import {type x} from 'foo'; import type {y} from 'foo'",
+          ...parserConfig,
+          options: [{ 'prefer-inline': true }],
+          output: `import {type x,type y} from 'foo'; `,
+          errors: [
+            {
+              line: 1,
+              column: 22,
+              message: "'foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 50,
+              message: "'foo' imported multiple times.",
+            },
+          ],
+        }),
+        test({
+          code: "import {type x} from 'foo'; import type {y} from 'foo'",
+          ...parserConfig,
+          output: `import {type x,y} from 'foo'; `,
+          errors: [
+            {
+              line: 1,
+              column: 22,
+              message: "'foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 50,
+              message: "'foo' imported multiple times.",
+            },
+          ],
+        }),
+        test({
+          code: "import {type x} from './foo'; import {type y} from './foo'",
+          ...parserConfig,
+          options: [{ 'prefer-inline': true }],
+          output: `import {type x,type y} from './foo'; `,
+          errors: [
+            {
+              line: 1,
+              column: 22,
+              message: "'./foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 52,
+              message: "'./foo' imported multiple times.",
+            },
+          ],
+        }),
+        test({
+          code: "import {type x} from './foo'; import {type y} from './foo'",
+          ...parserConfig,
+          output: `import {type x,type y} from './foo'; `,
+          errors: [
+            {
+              line: 1,
+              column: 22,
+              message: "'./foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 52,
+              message: "'./foo' imported multiple times.",
+            },
+          ],
+        }),
+        test({
+          code: "import {AValue, type x, BValue} from './foo'; import {type y} from './foo'",
+          ...parserConfig,
+          output: `import {AValue, type x, BValue,type y} from './foo'; `,
+          errors: [
+            {
+              line: 1,
+              column: 38,
+              message: "'./foo' imported multiple times.",
+            },
+            {
+              line: 1,
+              column: 68,
+              message: "'./foo' imported multiple times.",
+            },
+          ],
+        }),
+      ]);
+
+      ruleTester.run('no-duplicates', rule, {
+        valid,
+        invalid,
       });
     });
 });

@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import * as path from 'path';
 
-import importType, { isExternalModule, isScopedModule, isScoped } from 'core/importType';
+import importType, { isExternalModule, isScoped, isAbsolute } from 'core/importType';
 
 import { testContext, testFilePath } from '../utils';
 
@@ -75,6 +75,17 @@ describe('importType(name)', function () {
     expect(importType('constants', pathContext)).to.equal('internal');
   });
 
+  it("should return 'internal' for aliased internal modules that are found, even if they are not discernible as scoped", function () {
+    // `@` for internal modules is a common alias and is different from scoped names.
+    // Scoped names are prepended with `@` (e.g. `@scoped/some-file.js`) whereas `@`
+    // as an alias by itelf is the full root name (e.g. `@/some-file.js`).
+    const alias = { '@': path.join(pathToTestFiles, 'internal-modules') };
+    const webpackConfig = { resolve: { alias } };
+    const pathContext = testContext({ 'import/resolver': { webpack: { config: webpackConfig } } });
+    expect(importType('@/api/service', pathContext)).to.equal('internal');
+    expect(importType('@/does-not-exist', pathContext)).to.equal('unknown');
+  });
+
   it("should return 'parent' for internal modules that go through the parent", function () {
     expect(importType('../foo', context)).to.equal('parent');
     expect(importType('../../foo', context)).to.equal('parent');
@@ -100,6 +111,7 @@ describe('importType(name)', function () {
   it("should return 'unknown' for any unhandled cases", function () {
     expect(importType('  /malformed', context)).to.equal('unknown');
     expect(importType('   foo', context)).to.equal('unknown');
+    expect(importType('-/no-such-path', context)).to.equal('unknown');
   });
 
   it("should return 'builtin' for additional core modules", function () {
@@ -233,17 +245,20 @@ describe('importType(name)', function () {
 
   it('`isExternalModule` works with windows directory separator', function () {
     const context = testContext();
-    expect(isExternalModule('foo', {}, 'E:\\path\\to\\node_modules\\foo', context)).to.equal(true);
-    expect(isExternalModule('foo', {
-      'import/external-module-folders': ['E:\\path\\to\\node_modules'],
-    }, 'E:\\path\\to\\node_modules\\foo', context)).to.equal(true);
+    expect(isExternalModule('foo', 'E:\\path\\to\\node_modules\\foo', context)).to.equal(true);
+    expect(isExternalModule('@foo/bar', 'E:\\path\\to\\node_modules\\@foo\\bar', context)).to.equal(true);
+    expect(isExternalModule('foo', 'E:\\path\\to\\node_modules\\foo', testContext({
+      settings: { 'import/external-module-folders': ['E:\\path\\to\\node_modules'] },
+    }))).to.equal(true);
   });
 
-  it('correctly identifies scoped modules with `isScopedModule`', () => {
-    expect(isScopedModule('@/abc')).to.equal(false);
-    expect(isScopedModule('@/abc/def')).to.equal(false);
-    expect(isScopedModule('@a/abc')).to.equal(true);
-    expect(isScopedModule('@a/abc/def')).to.equal(true);
+  it('`isExternalModule` works with unix directory separator', function () {
+    const context = testContext();
+    expect(isExternalModule('foo', '/path/to/node_modules/foo', context)).to.equal(true);
+    expect(isExternalModule('@foo/bar', '/path/to/node_modules/@foo/bar', context)).to.equal(true);
+    expect(isExternalModule('foo', '/path/to/node_modules/foo', testContext({
+      settings: { 'import/external-module-folders': ['/path/to/node_modules'] },
+    }))).to.equal(true);
   });
 
   it('correctly identifies scoped modules with `isScoped`', () => {
@@ -251,5 +266,16 @@ describe('importType(name)', function () {
     expect(isScoped('@/abc/def')).to.equal(false);
     expect(isScoped('@a/abc')).to.equal(true);
     expect(isScoped('@a/abc/def')).to.equal(true);
+  });
+});
+
+describe('isAbsolute', () => {
+  it('does not throw on a non-string', () => {
+    expect(() => isAbsolute()).not.to.throw();
+    expect(() => isAbsolute(null)).not.to.throw();
+    expect(() => isAbsolute(true)).not.to.throw();
+    expect(() => isAbsolute(false)).not.to.throw();
+    expect(() => isAbsolute(0)).not.to.throw();
+    expect(() => isAbsolute(NaN)).not.to.throw();
   });
 });

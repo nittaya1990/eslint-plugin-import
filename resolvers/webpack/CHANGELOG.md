@@ -1,9 +1,14 @@
 # Change Log
 All notable changes to this resolver will be documented in this file.
-This project adheres to [Semantic Versioning](http://semver.org/).
-This change log adheres to standards from [Keep a CHANGELOG](http://keepachangelog.com).
+This project adheres to [Semantic Versioning](https://semver.org/).
+This change log adheres to standards from [Keep a CHANGELOG](https://keepachangelog.com).
 
 ## Unreleased
+
+## 0.13.2 - 2021-10-20
+
+### Changed
+ - [meta] expand `engines.node` to include node 17 ([#2268], thanks [@ljharb])
 
 ## 0.13.1 - 2021-05-13
 
@@ -176,6 +181,7 @@ This change log adheres to standards from [Keep a CHANGELOG](http://keepachangel
 [#181]: https://github.com/import-js/eslint-plugin-import/pull/181
 [#164]: https://github.com/import-js/eslint-plugin-import/pull/164
 
+[#2268]: https://github.com/import-js/eslint-plugin-import/issues/2268
 [#1219]: https://github.com/import-js/eslint-plugin-import/issues/1219
 [#788]: https://github.com/import-js/eslint-plugin-import/issues/788
 [#767]: https://github.com/import-js/eslint-plugin-import/issues/767

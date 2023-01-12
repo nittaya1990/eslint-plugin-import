@@ -1,6 +1,8 @@
 'use strict';
 
 import minimatch from 'minimatch';
+import includes from 'array-includes';
+
 import importType from '../core/importType';
 import isStaticRequire from '../core/staticRequire';
 import docsUrl from '../docsUrl';
@@ -127,7 +129,17 @@ function findStartOfLineWithComments(sourceCode, node) {
   return result;
 }
 
-function isPlainRequireModule(node) {
+function isRequireExpression(expr) {
+  return expr != null &&
+    expr.type === 'CallExpression' &&
+    expr.callee != null &&
+    expr.callee.name === 'require' &&
+    expr.arguments != null &&
+    expr.arguments.length === 1 &&
+    expr.arguments[0].type === 'Literal';
+}
+
+function isSupportedRequireModule(node) {
   if (node.type !== 'VariableDeclaration') {
     return false;
   }
@@ -135,16 +147,17 @@ function isPlainRequireModule(node) {
     return false;
   }
   const decl = node.declarations[0];
-  const result = decl.id &&
+  const isPlainRequire = decl.id &&
+    (decl.id.type === 'Identifier' || decl.id.type === 'ObjectPattern') &&
+    isRequireExpression(decl.init);
+  const isRequireWithMemberExpression = decl.id &&
     (decl.id.type === 'Identifier' || decl.id.type === 'ObjectPattern') &&
     decl.init != null &&
     decl.init.type === 'CallExpression' &&
     decl.init.callee != null &&
-    decl.init.callee.name === 'require' &&
-    decl.init.arguments != null &&
-    decl.init.arguments.length === 1 &&
-    decl.init.arguments[0].type === 'Literal';
-  return result;
+    decl.init.callee.type === 'MemberExpression' &&
+    isRequireExpression(decl.init.callee.object);
+  return isPlainRequire || isRequireWithMemberExpression;
 }
 
 function isPlainImportModule(node) {
@@ -156,7 +169,7 @@ function isPlainImportEquals(node) {
 }
 
 function canCrossNodeWhileReorder(node) {
-  return isPlainRequireModule(node) || isPlainImportModule(node) || isPlainImportEquals(node);
+  return isSupportedRequireModule(node) || isPlainImportModule(node) || isPlainImportEquals(node);
 }
 
 function canReorderItems(firstNode, secondNode) {
@@ -172,6 +185,16 @@ function canReorderItems(firstNode, secondNode) {
     }
   }
   return true;
+}
+
+function makeImportDescription(node) {
+  if (node.node.importKind === 'type') {
+    return 'type import';
+  }
+  if (node.node.importKind === 'typeof') {
+    return 'typeof import';
+  }
+  return 'import';
 }
 
 function fixOutOfOrder(context, firstNode, secondNode, order) {
@@ -191,7 +214,9 @@ function fixOutOfOrder(context, firstNode, secondNode, order) {
     newCode = newCode + '\n';
   }
 
-  const message = `\`${secondNode.displayName}\` import should occur ${order} import of \`${firstNode.displayName}\``;
+  const firstImport = `${makeImportDescription(firstNode)} of \`${firstNode.displayName}\``;
+  const secondImport = `\`${secondNode.displayName}\` ${makeImportDescription(secondNode)}`;
+  const message = `${secondImport} should occur ${order} ${firstImport}`;
 
   if (order === 'before') {
     context.report({
@@ -200,7 +225,7 @@ function fixOutOfOrder(context, firstNode, secondNode, order) {
       fix: canFix && (fixer =>
         fixer.replaceTextRange(
           [firstRootStart, secondRootEnd],
-          newCode + sourceCode.text.substring(firstRootStart, secondRootStart)
+          newCode + sourceCode.text.substring(firstRootStart, secondRootStart),
         )),
     });
   } else if (order === 'after') {
@@ -210,7 +235,7 @@ function fixOutOfOrder(context, firstNode, secondNode, order) {
       fix: canFix && (fixer =>
         fixer.replaceTextRange(
           [secondRootStart, firstRootEnd],
-          sourceCode.text.substring(secondRootEnd, firstRootEnd) + newCode
+          sourceCode.text.substring(secondRootEnd, firstRootEnd) + newCode,
         )),
     });
   }
@@ -240,21 +265,63 @@ function makeOutOfOrderReport(context, imported) {
   reportOutOfOrder(context, imported, outOfOrder, 'before');
 }
 
-function getSorter(ascending) {
-  const multiplier = ascending ? 1 : -1;
+const compareString = (a, b) => {
+  if (a < b) {
+    return -1;
+  }
+  if (a > b) {
+    return 1;
+  }
+  return 0;
+};
 
-  return function importsSorter(importA, importB) {
-    let result;
+/** Some parsers (languages without types) don't provide ImportKind */
+const DEAFULT_IMPORT_KIND = 'value';
+const getNormalizedValue = (node, toLowerCase) => {
+  const value = node.value;
+  return toLowerCase ? String(value).toLowerCase() : value;
+};
 
-    if (importA < importB) {
-      result = -1;
-    } else if (importA > importB) {
-      result = 1;
+function getSorter(alphabetizeOptions) {
+  const multiplier = alphabetizeOptions.order === 'asc' ? 1 : -1;
+  const orderImportKind = alphabetizeOptions.orderImportKind;
+  const multiplierImportKind = orderImportKind !== 'ignore' &&
+    (alphabetizeOptions.orderImportKind === 'asc' ? 1 : -1);
+
+  return function importsSorter(nodeA, nodeB) {
+    const importA = getNormalizedValue(nodeA, alphabetizeOptions.caseInsensitive);
+    const importB = getNormalizedValue(nodeB, alphabetizeOptions.caseInsensitive);
+    let result = 0;
+
+    if (!includes(importA, '/') && !includes(importB, '/')) {
+      result = compareString(importA, importB);
     } else {
-      result = 0;
+      const A = importA.split('/');
+      const B = importB.split('/');
+      const a = A.length;
+      const b = B.length;
+
+      for (let i = 0; i < Math.min(a, b); i++) {
+        result = compareString(A[i], B[i]);
+        if (result) break;
+      }
+
+      if (!result && a !== b) {
+        result = a < b ? -1 : 1;
+      }
     }
 
-    return result * multiplier;
+    result = result * multiplier;
+
+    // In case the paths are equal (result === 0), sort them by importKind
+    if (!result && multiplierImportKind) {
+      result = multiplierImportKind * compareString(
+        nodeA.node.importKind || DEAFULT_IMPORT_KIND,
+        nodeB.node.importKind || DEAFULT_IMPORT_KIND,
+      );
+    }
+
+    return result;
   };
 }
 
@@ -269,14 +336,11 @@ function mutateRanksToAlphabetize(imported, alphabetizeOptions) {
 
   const groupRanks = Object.keys(groupedByRanks);
 
-  const sorterFn = getSorter(alphabetizeOptions.order === 'asc');
-  const comparator = alphabetizeOptions.caseInsensitive
-    ? (a, b) => sorterFn(String(a.value).toLowerCase(), String(b.value).toLowerCase())
-    : (a, b) => sorterFn(a.value, b.value);
+  const sorterFn = getSorter(alphabetizeOptions);
 
   // sort imports locally within their group
   groupRanks.forEach(function (groupRank) {
-    groupedByRanks[groupRank].sort(comparator);
+    groupedByRanks[groupRank].sort(sorterFn);
   });
 
   // assign globally unique rank to each import
@@ -373,7 +437,7 @@ function convertGroupsToRanks(groups) {
       if (res[groupItem] !== undefined) {
         throw new Error('Incorrect configuration of the rule: `' + groupItem + '` is duplicated');
       }
-      res[groupItem] = index;
+      res[groupItem] = index * 2;
     });
     return res;
   }, {});
@@ -383,7 +447,7 @@ function convertGroupsToRanks(groups) {
   });
 
   const ranks = omittedTypes.reduce(function (res, type) {
-    res[type] = groups.length;
+    res[type] = groups.length * 2;
     return res;
   }, rankObject);
 
@@ -459,36 +523,43 @@ function removeNewLineAfterImport(context, currentImport, previousImport) {
   return undefined;
 }
 
-function makeNewlinesBetweenReport(context, imported, newlinesBetweenImports) {
+function makeNewlinesBetweenReport(context, imported, newlinesBetweenImports, distinctGroup) {
   const getNumberOfEmptyLinesBetween = (currentImport, previousImport) => {
     const linesBetweenImports = context.getSourceCode().lines.slice(
       previousImport.node.loc.end.line,
-      currentImport.node.loc.start.line - 1
+      currentImport.node.loc.start.line - 1,
     );
 
     return linesBetweenImports.filter((line) => !line.trim().length).length;
+  };
+  const getIsStartOfDistinctGroup = (currentImport, previousImport) => {
+    return currentImport.rank - 1 >= previousImport.rank;
   };
   let previousImport = imported[0];
 
   imported.slice(1).forEach(function (currentImport) {
     const emptyLinesBetween = getNumberOfEmptyLinesBetween(currentImport, previousImport);
+    const isStartOfDistinctGroup = getIsStartOfDistinctGroup(currentImport, previousImport);
 
     if (newlinesBetweenImports === 'always'
         || newlinesBetweenImports === 'always-and-inside-groups') {
       if (currentImport.rank !== previousImport.rank && emptyLinesBetween === 0) {
-        context.report({
-          node: previousImport.node,
-          message: 'There should be at least one empty line between import groups',
-          fix: fixNewLineAfterImport(context, previousImport),
-        });
-      } else if (currentImport.rank === previousImport.rank
-        && emptyLinesBetween > 0
+        if (distinctGroup || (!distinctGroup && isStartOfDistinctGroup)) {
+          context.report({
+            node: previousImport.node,
+            message: 'There should be at least one empty line between import groups',
+            fix: fixNewLineAfterImport(context, previousImport),
+          });
+        }
+      } else if (emptyLinesBetween > 0
         && newlinesBetweenImports !== 'always-and-inside-groups') {
-        context.report({
-          node: previousImport.node,
-          message: 'There should be no empty line within import group',
-          fix: removeNewLineAfterImport(context, currentImport, previousImport),
-        });
+        if ((distinctGroup && currentImport.rank === previousImport.rank) || (!distinctGroup && !isStartOfDistinctGroup)) {
+          context.report({
+            node: previousImport.node,
+            message: 'There should be no empty line within import group',
+            fix: removeNewLineAfterImport(context, currentImport, previousImport),
+          });
+        }
       }
     } else if (emptyLinesBetween > 0) {
       context.report({
@@ -505,15 +576,21 @@ function makeNewlinesBetweenReport(context, imported, newlinesBetweenImports) {
 function getAlphabetizeConfig(options) {
   const alphabetize = options.alphabetize || {};
   const order = alphabetize.order || 'ignore';
+  const orderImportKind = alphabetize.orderImportKind || 'ignore';
   const caseInsensitive = alphabetize.caseInsensitive || false;
 
-  return { order, caseInsensitive };
+  return { order, orderImportKind, caseInsensitive };
 }
+
+// TODO, semver-major: Change the default of "distinctGroup" from true to false
+const defaultDistinctGroup = true;
 
 module.exports = {
   meta: {
     type: 'suggestion',
     docs: {
+      category: 'Style guide',
+      description: 'Enforce a convention in module import order.',
       url: docsUrl('order'),
     },
 
@@ -527,6 +604,10 @@ module.exports = {
           },
           pathGroupsExcludedImportTypes: {
             type: 'array',
+          },
+          distinctGroup: {
+            type: 'boolean',
+            default: defaultDistinctGroup,
           },
           pathGroups: {
             type: 'array',
@@ -548,6 +629,7 @@ module.exports = {
                   enum: ['after', 'before'],
                 },
               },
+              additionalProperties: false,
               required: ['pattern', 'group'],
             },
           },
@@ -570,6 +652,10 @@ module.exports = {
                 enum: ['ignore', 'asc', 'desc'],
                 default: 'ignore',
               },
+              orderImportKind: {
+                enum: ['ignore', 'asc', 'desc'],
+                default: 'ignore',
+              },
             },
             additionalProperties: false,
           },
@@ -588,6 +674,7 @@ module.exports = {
     const newlinesBetweenImports = options['newlines-between'] || 'ignore';
     const pathGroupsExcludedImportTypes = new Set(options['pathGroupsExcludedImportTypes'] || ['builtin', 'external', 'object']);
     const alphabetize = getAlphabetizeConfig(options);
+    const distinctGroup = options.distinctGroup == null ? defaultDistinctGroup : !!options.distinctGroup;
     let ranks;
 
     try {
@@ -631,7 +718,7 @@ module.exports = {
             },
             ranks,
             getBlockImports(node.parent),
-            pathGroupsExcludedImportTypes
+            pathGroupsExcludedImportTypes,
           );
         }
       },
@@ -662,7 +749,7 @@ module.exports = {
           },
           ranks,
           getBlockImports(node.parent),
-          pathGroupsExcludedImportTypes
+          pathGroupsExcludedImportTypes,
         );
       },
       CallExpression: function handleRequires(node) {
@@ -684,13 +771,13 @@ module.exports = {
           },
           ranks,
           getBlockImports(block),
-          pathGroupsExcludedImportTypes
+          pathGroupsExcludedImportTypes,
         );
       },
       'Program:exit': function reportAndReset() {
         importMap.forEach((imported) => {
           if (newlinesBetweenImports !== 'ignore') {
-            makeNewlinesBetweenReport(context, imported, newlinesBetweenImports);
+            makeNewlinesBetweenReport(context, imported, newlinesBetweenImports, distinctGroup);
           }
 
           if (alphabetize.order !== 'ignore') {

@@ -18,7 +18,13 @@
         "ecmaVersion": 2020,
     },
     "rules": {
-        "comma-dangle": [2, "always-multiline"],
+        "comma-dangle": ["error", {
+            "arrays": "always-multiline",
+            "objects": "always-multiline",
+            "imports": "always-multiline",
+            "exports": "always-multiline",
+            "functions": "always-multiline",
+        }],
         "comma-style": [2, "last"],
         "curly": [2, "multi-line"],
         "eol-last": [2, "always"],
@@ -26,18 +32,17 @@
         "func-call-spacing": 2,
         "indent": [2, 2],
         "keyword-spacing": ["error", {
-          before: true,
-          after: true,
-          overrides: {
-            return: { after: true },
-            throw: { after: true },
-            case: { after: true }
+          "before": true,
+          "after": true,
+          "overrides": {
+            "return": { "after": true },
+            "throw": { "after": true },
+            "case": { "after": true }
           }
         }],
-        "max-len": [1, 99, 2],
+        "max-len": 0,
         "no-cond-assign": [2, "always"],
         "no-return-assign": [2, "always"],
-        "no-shadow": 1,
         "no-var": 2,
         "object-curly-spacing": [2, "always"],
         "object-shorthand": ["error", "always", {
@@ -66,6 +71,7 @@
         "eslint-plugin/no-deprecated-report-api": "off",
         "eslint-plugin/prefer-replace-text": "error",
         "eslint-plugin/report-message-format": "error",
+        "eslint-plugin/require-meta-docs-description": ["error", { "pattern": "^(Enforce|Ensure|Prefer|Forbid).+\\.$" }],
         "eslint-plugin/require-meta-schema": "error",
         "eslint-plugin/require-meta-type": "error",
 
@@ -92,6 +98,22 @@
             },
         },
         {
+            "files": "resolvers/**",
+            "env": {
+                "es6": false,
+            },
+        },
+        {
+            "files": "resolvers/webpack/**",
+            "rules": {
+                "import/no-extraneous-dependencies": 1,
+                "no-console": 1,
+            },
+            "env": {
+                "es6": true,
+            },
+        },
+        {
             "files": [
                 "resolvers/*/test/**/*",
             ],
@@ -99,6 +121,32 @@
                 "mocha": true,
                 "es6": false
             },
-        }
+        },
+        {
+            "files": "utils/**",
+            "parserOptions": {
+                "ecmaVersion": 6,
+            },
+            "rules": {
+                "comma-dangle": ["error", {
+                    "arrays": "always-multiline",
+                    "objects": "always-multiline",
+                    "imports": "always-multiline",
+                    "exports": "always-multiline",
+                    "functions": "never"
+                }],
+                "no-console": 1,
+            },
+        },
+        {
+            "files": "tests/**",
+            "env": {
+                "mocha": true,
+            },
+            "rules": {
+                "max-len": 0,
+                "import/default": 0,
+            },
+        },
     ],
 }

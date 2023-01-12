@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { dirname } from 'path';
 
 import doctrine from 'doctrine';
 
@@ -18,7 +19,7 @@ import { tsConfigLoader } from 'tsconfig-paths/lib/tsconfig-loader';
 
 import includes from 'array-includes';
 
-let parseConfigFileTextToJson;
+let ts;
 
 const log = debug('eslint-plugin-import:ExportMap');
 
@@ -42,6 +43,10 @@ export default class ExportMap {
      */
     this.imports = new Map();
     this.errors = [];
+    /**
+     * type {'ambiguous' | 'Module' | 'Script'}
+     */
+    this.parseGoal = 'ambiguous';
   }
 
   get hasDefault() { return this.get('default') != null; } // stronger than this.has
@@ -341,7 +346,11 @@ ExportMap.for = function (context) {
   exportMap = ExportMap.parse(path, content, context);
 
   // ambiguous modules return null
-  if (exportMap == null) return null;
+  if (exportMap == null) {
+    log('ignored path due to ambiguous parse:', path);
+    exportCache.set(cacheKey, null);
+    return null;
+  }
 
   exportMap.mtime = stats.mtime;
 
@@ -390,6 +399,7 @@ ExportMap.parse = function (path, content, context) {
           loc: source.loc,
         },
         importedSpecifiers,
+        dynamic: true,
       }]),
     });
   }
@@ -405,7 +415,8 @@ ExportMap.parse = function (path, content, context) {
     },
   });
 
-  if (!unambiguous.isModule(ast) && !hasDynamicImports) return null;
+  const unambiguouslyESM = unambiguous.isModule(ast);
+  if (!unambiguouslyESM && !hasDynamicImports) return null;
 
   const docstyle = (context.settings && context.settings['import/docstyle']) || ['jsdoc'];
   const docStyleParsers = {};
@@ -473,11 +484,11 @@ ExportMap.parse = function (path, content, context) {
       }));
       return;
     case 'ExportAllDeclaration':
-      m.namespace.set(s.exported.name, addNamespace(exportMeta, s.source.value));
+      m.namespace.set(s.exported.name || s.exported.value, addNamespace(exportMeta, s.source.value));
       return;
     case 'ExportSpecifier':
       if (!n.source) {
-        m.namespace.set(s.exported.name, addNamespace(exportMeta, s.local));
+        m.namespace.set(s.exported.name || s.exported.value, addNamespace(exportMeta, s.local));
         return;
       }
       // else falls through
@@ -488,6 +499,27 @@ ExportMap.parse = function (path, content, context) {
 
     // todo: JSDoc
     m.reexports.set(s.exported.name, { local, getImport: () => resolveImport(nsource) });
+  }
+
+  function captureDependencyWithSpecifiers(n) {
+    // import type { Foo } (TS and Flow); import typeof { Foo } (Flow)
+    const declarationIsType = n.importKind === 'type' || n.importKind === 'typeof';
+    // import './foo' or import {} from './foo' (both 0 specifiers) is a side effect and
+    // shouldn't be considered to be just importing types
+    let specifiersOnlyImportingTypes = n.specifiers.length > 0;
+    const importedSpecifiers = new Set();
+    n.specifiers.forEach(specifier => {
+      if (specifier.type === 'ImportSpecifier') {
+        importedSpecifiers.add(specifier.imported.name || specifier.imported.value);
+      } else if (supportedImportTypes.has(specifier.type)) {
+        importedSpecifiers.add(specifier.type);
+      }
+
+      // import { type Foo } (Flow); import { typeof Foo } (Flow)
+      specifiersOnlyImportingTypes = specifiersOnlyImportingTypes
+        && (specifier.importKind === 'type' || specifier.importKind === 'typeof');
+    });
+    captureDependency(n, declarationIsType || specifiersOnlyImportingTypes, importedSpecifiers);
   }
 
   function captureDependency({ source }, isOnlyImportingTypes, importedSpecifiers = new Set()) {
@@ -516,7 +548,7 @@ ExportMap.parse = function (path, content, context) {
 
   const source = makeSourceCode(content, ast);
 
-  function readTsConfig() {
+  function readTsConfig(context) {
     const tsConfigInfo = tsConfigLoader({
       cwd:
         (context.parserOptions && context.parserOptions.tsconfigRootDir) ||
@@ -525,12 +557,15 @@ ExportMap.parse = function (path, content, context) {
     });
     try {
       if (tsConfigInfo.tsConfigPath !== undefined) {
-        const jsonText = fs.readFileSync(tsConfigInfo.tsConfigPath).toString();
-        if (!parseConfigFileTextToJson) {
-          // this is because projects not using TypeScript won't have typescript installed
-          ({ parseConfigFileTextToJson } = require('typescript'));
-        }
-        return parseConfigFileTextToJson(tsConfigInfo.tsConfigPath, jsonText).config;
+        // Projects not using TypeScript won't have `typescript` installed.
+        if (!ts) { ts = require('typescript'); }
+  
+        const configFile = ts.readConfigFile(tsConfigInfo.tsConfigPath, ts.sys.readFile);
+        return ts.parseJsonConfigFileContent(
+          configFile.config,
+          ts.sys,
+          dirname(tsConfigInfo.tsConfigPath),
+        );
       }
     } catch (e) {
       // Catch any errors
@@ -545,11 +580,11 @@ ExportMap.parse = function (path, content, context) {
     }).digest('hex');
     let tsConfig = tsConfigCache.get(cacheKey);
     if (typeof tsConfig === 'undefined') {
-      tsConfig = readTsConfig();
+      tsConfig = readTsConfig(context);
       tsConfigCache.set(cacheKey, tsConfig);
     }
 
-    return tsConfig && tsConfig.compilerOptions ? tsConfig.compilerOptions.esModuleInterop : false;
+    return tsConfig && tsConfig.options ? tsConfig.options.esModuleInterop : false;
   }
 
   ast.body.forEach(function (n) {
@@ -573,25 +608,7 @@ ExportMap.parse = function (path, content, context) {
 
     // capture namespaces in case of later export
     if (n.type === 'ImportDeclaration') {
-      // import type { Foo } (TS and Flow)
-      const declarationIsType = n.importKind === 'type';
-      // import './foo' or import {} from './foo' (both 0 specifiers) is a side effect and
-      // shouldn't be considered to be just importing types
-      let specifiersOnlyImportingTypes = n.specifiers.length;
-      const importedSpecifiers = new Set();
-      n.specifiers.forEach(specifier => {
-        if (supportedImportTypes.has(specifier.type)) {
-          importedSpecifiers.add(specifier.type);
-        }
-        if (specifier.type === 'ImportSpecifier') {
-          importedSpecifiers.add(specifier.imported.name);
-        }
-
-        // import { type Foo } (Flow)
-        specifiersOnlyImportingTypes =
-          specifiersOnlyImportingTypes && specifier.importKind === 'type';
-      });
-      captureDependency(n, declarationIsType || specifiersOnlyImportingTypes, importedSpecifiers);
+      captureDependencyWithSpecifiers(n);
 
       const ns = n.specifiers.find(s => s.type === 'ImportNamespaceSpecifier');
       if (ns) {
@@ -601,6 +618,8 @@ ExportMap.parse = function (path, content, context) {
     }
 
     if (n.type === 'ExportNamedDeclaration') {
+      captureDependencyWithSpecifiers(n);
+
       // capture declaration
       if (n.declaration != null) {
         switch (n.declaration.type) {
@@ -636,7 +655,7 @@ ExportMap.parse = function (path, content, context) {
     // This doesn't declare anything, but changes what's being exported.
     if (includes(exports, n.type)) {
       const exportedName = n.type === 'TSNamespaceExportDeclaration'
-        ? n.id.name
+        ? (n.id || n.name).name
         : (n.expression && n.expression.name || (n.expression.id && n.expression.id.name) || null);
       const declTypes = [
         'VariableDeclaration',
@@ -706,6 +725,9 @@ ExportMap.parse = function (path, content, context) {
     m.namespace.set('default', {}); // add default export
   }
 
+  if (unambiguouslyESM) {
+    m.parseGoal = 'Module';
+  }
   return m;
 };
 

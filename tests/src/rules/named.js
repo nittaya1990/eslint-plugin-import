@@ -1,5 +1,6 @@
-import { test, SYNTAX_CASES, getTSParsers, testFilePath, testVersion } from '../utils';
+import { test, SYNTAX_CASES, getTSParsers, testFilePath, testVersion, parsers } from '../utils';
 import { RuleTester } from 'eslint';
+import path from 'path';
 
 import { CASE_SENSITIVE_FS } from 'eslint-module-utils/resolve';
 
@@ -7,9 +8,8 @@ import { CASE_SENSITIVE_FS } from 'eslint-module-utils/resolve';
 const ruleTester = new RuleTester();
 const rule = require('rules/named');
 
-function error(name, module) {
-  return { message: name + ' not found in \'' + module + '\'',
-    type: 'Identifier' };
+function error(name, module, type = 'Identifier') {
+  return { message: name + ' not found in \'' + module + '\'', type };
 }
 
 ruleTester.run('named', rule, {
@@ -55,11 +55,11 @@ ruleTester.run('named', rule, {
     // es7
     test({
       code: 'export bar, { foo } from "./bar"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import { foo, bar } from "./named-trampoline"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
 
     // regression tests
@@ -74,43 +74,43 @@ ruleTester.run('named', rule, {
     // should ignore imported/exported flow types, even if they don’t exist
     test({
       code: 'import type { MissingType } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import typeof { MissingType } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import type { MyOpaqueType } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import typeof { MyOpaqueType } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import { type MyOpaqueType, MyClass } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import { typeof MyOpaqueType, MyClass } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import typeof MissingType from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import typeof * as MissingType from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'export type { MissingType } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'export type { MyOpaqueType } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
 
     // jsnext
@@ -190,10 +190,25 @@ ruleTester.run('named', rule, {
         sourceType: 'module',
         ecmaVersion: 2020,
       },
-    })) || []),
+    })),
+
+    testVersion('>=7.8.0', () =>({ code: 'const { something } = require("./dynamic-import-in-commonjs")',
+      parserOptions: { ecmaVersion: 2021 },
+      options: [{ commonjs: true }],
+    })),
+
+    testVersion('>=7.8.0', () => ({ code: 'import { something } from "./dynamic-import-in-commonjs"',
+      parserOptions: { ecmaVersion: 2021 } })),
+
+    // es2022: Arbitrary module namespace identifier names
+    testVersion('>= 8.7', () => ({
+      code: 'import { "foo" as foo } from "./bar"', parserOptions: { ecmaVersion: 2022 } })),
+    testVersion('>= 8.7', () => ({
+      code: 'import { "foo" as foo } from "./empty-module"', parserOptions: { ecmaVersion: 2022 } })),
+    ),
   ],
 
-  invalid: [
+  invalid: [].concat(
     test({ code: 'import { somethingElse } from "./test-module"',
       errors: [ error('somethingElse', './test-module') ] }),
 
@@ -230,17 +245,17 @@ ruleTester.run('named', rule, {
     // es7
     test({
       code: 'export bar2, { bar } from "./bar"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: ["bar not found in './bar'"],
     }),
     test({
       code: 'import { foo, bar, baz } from "./named-trampoline"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: ["baz not found in './named-trampoline'"],
     }),
     test({
       code: 'import { baz } from "./broken-trampoline"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: ['baz not found via broken-trampoline.js -> named-exports.js'],
     }),
 
@@ -280,7 +295,7 @@ ruleTester.run('named', rule, {
 
     test({
       code: 'import  { type MyOpaqueType, MyMissingClass } from "./flowtypes"',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
       errors: ["MyMissingClass not found in './flowtypes'"],
     }),
 
@@ -314,7 +329,24 @@ ruleTester.run('named', rule, {
       code: 'import { default as barDefault } from "./re-export"',
       errors: [`default not found in './re-export'`],
     }),
-  ],
+
+    // es2022: Arbitrary module namespace identifier names
+    testVersion('>= 8.7', () => ({
+      code: 'import { "somethingElse" as somethingElse } from "./test-module"',
+      errors: [ error('somethingElse', './test-module', 'Literal') ],
+      parserOptions: { ecmaVersion: 2022 },
+    })),
+    testVersion('>= 8.7', () => ({
+      code: 'import { "baz" as baz, "bop" as bop } from "./bar"',
+      errors: [error('baz', './bar', 'Literal'), error('bop', './bar', 'Literal')],
+      parserOptions: { ecmaVersion: 2022 },
+    })),
+    testVersion('>= 8.7', () => ({
+      code: 'import { "default" as barDefault } from "./re-export"',
+      errors: [`default not found in './re-export'`],
+      parserOptions: { ecmaVersion: 2022 },
+    })),
+  ),
 });
 
 // #311: import of mismatched case
@@ -357,13 +389,51 @@ context('TypeScript', function () {
       'import/resolver': { 'eslint-import-resolver-typescript': true },
     };
 
-    const valid = [];
-    const invalid = [
+    let valid = [
       test({
-        code: `import {a} from './export-star-3/b';`,
-        filename: testFilePath('./export-star-3/a.js'),
+        code: `import x from './typescript-export-assign-object'`,
         parser,
+        parserOptions: {
+          tsconfigRootDir: path.resolve(__dirname, '../../files/typescript-export-assign-object/'),
+        },
         settings,
+      }),
+    ];
+    const invalid = [
+      // TODO: uncomment this test
+      // test({
+      //   code: `import {a} from './export-star-3/b';`,
+      //   filename: testFilePath('./export-star-3/a.js'),
+      //   parser,
+      //   settings,
+      //   errors: [
+      //     { message: 'a not found in ./export-star-3/b' },
+      //   ],
+      // }),
+      test({
+        code: `import { NotExported } from './typescript-export-assign-object'`,
+        parser,
+        parserOptions: {
+          tsconfigRootDir: path.resolve(__dirname, '../../files/typescript-export-assign-object/'),
+        },
+        settings,
+        errors: [{
+          message: `NotExported not found in './typescript-export-assign-object'`,
+          type: 'Identifier',
+        }],
+      }),
+      test({
+        // `export =` syntax creates a default export only
+        code: `import { FooBar } from './typescript-export-assign-object'`,
+        parser,
+        parserOptions: {
+          tsconfigRootDir: path.resolve(__dirname, '../../files/typescript-export-assign-object/'),
+        },
+        settings,
+        errors: [{
+          message: `FooBar not found in './typescript-export-assign-object'`,
+          type: 'Identifier',
+        }],
       }),
     ];
 
@@ -373,7 +443,7 @@ context('TypeScript', function () {
       'typescript-export-assign-namespace',
       'typescript-export-assign-namespace-merged',
     ].forEach((source) => {
-      valid.push(
+      valid = valid.concat(
         test({
           code: `import { MyType } from "./${source}"`,
           parser,
@@ -389,11 +459,18 @@ context('TypeScript', function () {
           parser,
           settings,
         }),
-        test({
-          code: `import { getFoo } from "./${source}"`,
-          parser,
-          settings,
-        }),
+        (source === 'typescript-declare'
+          ? testVersion('> 5', () => ({
+            code: `import { getFoo } from "./${source}"`,
+            parser,
+            settings,
+          }))
+          : test({
+            code: `import { getFoo } from "./${source}"`,
+            parser,
+            settings,
+          })
+        ),
         test({
           code: `import { MyEnum } from "./${source}"`,
           parser,
@@ -437,6 +514,11 @@ context('TypeScript', function () {
           }],
         }),
       );
+    });
+
+    ruleTester.run(`named [TypeScript]`, rule, {
+      valid,
+      invalid,
     });
   });
 });

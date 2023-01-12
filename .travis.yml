@@ -25,11 +25,12 @@ matrix:
   fast_finish: true
 
 before_install:
+  - 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.2/install.sh | bash && . $NVM_DIR/nvm.sh'
   - 'nvm install-latest-npm'
-  - 'npm install'
+  - 'NPM_CONFIG_LEGACY_PEER_DEPS=true npm install'
   - 'npm run copy-metafiles'
 install:
-  - 'npm install'
+  - 'NPM_CONFIG_LEGACY_PEER_DEPS=true npm install'
   - 'if [ -n "${ESLINT_VERSION}" ]; then ./tests/dep-time-travel.sh; fi'
   - 'npm run pretest'
 
@@ -37,4 +38,4 @@ script:
   - npm run tests-only
 
 after_success:
-  - bash <(curl -s https://codecov.io/bash)
+  - bash <(curl -Os https://uploader.codecov.io/latest/linux/codecov)

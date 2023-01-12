@@ -10,6 +10,8 @@ module.exports = {
   meta: {
     type: 'suggestion',
     docs: {
+      category: 'Style guide',
+      description: 'Ensure all imports appear before other statements.',
       url: docsUrl('first'),
     },
     fixable: 'code',
@@ -31,6 +33,9 @@ module.exports = {
     return {
       'Program': function (n) {
         const body = n.body;
+        if (!body) {
+          return;
+        }
         const absoluteFirst = context.options[0] === 'absolute-first';
         const message = 'Import in body of module; reorder to top.';
         const sourceCode = context.getSourceCode();
@@ -105,7 +110,7 @@ module.exports = {
               const range = [0, removeFixers[removeFixers.length - 1].range[1]];
               let insertSourceCode = sortNodes.map(function (_errorInfo) {
                 const nodeSourceCode = String.prototype.slice.apply(
-                  originSourceCode, _errorInfo.range
+                  originSourceCode, _errorInfo.range,
                 );
                 if (/\S/.test(nodeSourceCode[0])) {
                   return '\n' + nodeSourceCode;
@@ -124,7 +129,7 @@ module.exports = {
               const fixers = [insertFixer].concat(removeFixers);
               fixers.forEach(function (computedFixer, i) {
                 replaceSourceCode += (originSourceCode.slice(
-                  fixers[i - 1] ? fixers[i - 1].range[1] : 0, computedFixer.range[0]
+                  fixers[i - 1] ? fixers[i - 1].range[1] : 0, computedFixer.range[0],
                 ) + computedFixer.text);
               });
               return fixer.replaceTextRange(range, replaceSourceCode);

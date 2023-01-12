@@ -3,7 +3,11 @@ import docsUrl from '../docsUrl';
 module.exports = {
   meta: {
     type: 'suggestion',
-    docs: { url: docsUrl('no-named-export') },
+    docs: {
+      category: 'Style guide',
+      description: 'Forbid named exports.',
+      url: docsUrl('no-named-export'),
+    },
     schema: [],
   },
 
@@ -25,7 +29,7 @@ module.exports = {
           return context.report({ node, message });
         }
 
-        const someNamed = node.specifiers.some(specifier => specifier.exported.name !== 'default');
+        const someNamed = node.specifiers.some(specifier => (specifier.exported.name || specifier.exported.value) !== 'default');
         if (someNamed) {
           context.report({ node, message });
         }

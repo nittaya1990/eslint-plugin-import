@@ -1,7 +1,9 @@
 import { RuleTester } from 'eslint';
 import flatMap from 'array.prototype.flatmap';
+import semver from 'semver';
+import { version as tsEslintVersion } from 'typescript-eslint-parser/package.json';
 
-import { getTSParsers, testVersion } from '../utils';
+import { getTSParsers, parsers, testVersion } from '../utils';
 
 const IMPORT_ERROR_MESSAGE = 'Expected 1 empty line after import statement not followed by another import.';
 const IMPORT_ERROR_MESSAGE_MULTIPLE = (count) => {
@@ -12,7 +14,7 @@ const REQUIRE_ERROR_MESSAGE = 'Expected 1 empty line after require statement not
 const ruleTester = new RuleTester();
 
 ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
-  valid: [
+  valid: [].concat(
     `var path = require('path');\nvar foo = require('foo');\n`,
     `require('foo');`,
     `switch ('foo') { case 'bar': require('baz'); }`,
@@ -23,7 +25,38 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
       parserOptions: { ecmaVersion: 6 } ,
     },
     {
+      code: `
+        const x = () => require('baz')
+            , y = () => require('bar')
+            
+        // some comment here
+      `,
+      parserOptions: { ecmaVersion: 6 } ,
+      options: [{ considerComments: true }],
+    },
+    {
       code: `const x = () => require('baz') && require('bar')`,
+      parserOptions: { ecmaVersion: 6 } ,
+    },
+    {
+      code: `
+        const x = () => require('baz') && require('bar')
+
+        // Some random single line comment
+        var bar = 42;
+      `,
+      parserOptions: { ecmaVersion: 6 } ,
+      options: [{ 'considerComments': true }],
+    },
+    {
+      code: `
+        const x = () => require('baz') && require('bar')
+        /**
+         * some multiline comment here
+         * another line of comment
+        **/
+        var bar = 42;
+      `,
       parserOptions: { ecmaVersion: 6 } ,
     },
     `function x() { require('baz'); }`,
@@ -161,24 +194,24 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
         class App {}
       `,
       parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     },
     {
       code: `var foo = require('foo');\n\n@SomeDecorator(foo)\nclass Foo {}`,
       parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     },
     {
       code : `// issue 1004\nimport foo from 'foo';\n\n@SomeDecorator(foo)\nexport default class Test {}`,
       parserOptions: { sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     },
     {
       code : `// issue 1004\nconst foo = require('foo');\n\n@SomeDecorator(foo)\nexport default class Test {}`,
       parserOptions: { sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     },
-    ...flatMap(getTSParsers(), (parser) => [
+    flatMap(getTSParsers(), (parser) => [].concat(
       {
         code: `
           import { ExecaReturnValue } from 'execa';
@@ -213,14 +246,14 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
         parser,
         parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
       },
-      {
+      parser !== parsers.TS_OLD || semver.satisfies(tsEslintVersion, '>= 22') ? {
         code: `
           export import a = obj;\nf(a);
         `,
         parser,
         parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
-      },
-      {
+      } : [],
+      parser !== parsers.TS_OLD || semver.satisfies(tsEslintVersion, '>= 22') ? {
         code: `
           import { a } from "./a";
 
@@ -230,7 +263,7 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
           }`,
         parser,
         parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
-      },
+      } : [],
       {
         code: `
           import stub from './stub';
@@ -242,7 +275,7 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
         parser,
         parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
       },
-    ]),
+    )),
     {
       code: `
         import stub from './stub';
@@ -253,9 +286,114 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
       `,
       parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
     },
-  ],
+    {
+      code: `
+        import path from 'path';
+        import foo from 'foo';
+        /**
+         * some multiline comment here
+         * another line of comment
+        **/
+        var bar = 42;
+      `,
+      parserOptions: { ecmaVersion: 2015, sourceType: 'module' } ,
+    },
+    {
+      code: `
+        import path from 'path';import foo from 'foo';
+        
+        /**
+         * some multiline comment here
+         * another line of comment
+        **/
+        var bar = 42;
+      `,
+      parserOptions: { ecmaVersion: 2015, sourceType: 'module' } ,
+      options: [{ 'considerComments': true }],
+    },
+    {
+      code: `
+        import path from 'path';
+        import foo from 'foo';
+        
+        // Some random single line comment
+        var bar = 42;
+      `,
+      parserOptions: { ecmaVersion: 2015, sourceType: 'module' } ,
+    },
+  ),
 
   invalid: [].concat(
+    {
+      code: `
+        import { A, B, C, D } from
+        '../path/to/my/module/in/very/far/directory'
+        // some comment
+        var foo = 'bar';
+      `,
+      output: `
+        import { A, B, C, D } from
+        '../path/to/my/module/in/very/far/directory'
+
+        // some comment
+        var foo = 'bar';
+      `,
+      errors: [ {
+        line: 3,
+        column: 1,
+        message: IMPORT_ERROR_MESSAGE,
+      } ],
+      parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
+      options: [{ 'considerComments': true }],
+    },
+    {
+      code: `
+        import path from 'path';
+        import foo from 'foo';
+        /**
+         * some multiline comment here
+         * another line of comment
+        **/
+        var bar = 42;
+      `,
+      output: `
+        import path from 'path';
+        import foo from 'foo';\n
+        /**
+         * some multiline comment here
+         * another line of comment
+        **/
+        var bar = 42;
+      `,
+      errors: [ {
+        line: 3,
+        column: 9,
+        message: IMPORT_ERROR_MESSAGE,
+      } ],
+      parserOptions: { ecmaVersion: 2015, sourceType: 'module' } ,
+      options: [{ 'considerComments': true }],
+    },
+    {
+      code: `
+        import path from 'path';
+        import foo from 'foo';
+        // Some random single line comment
+        var bar = 42;
+      `,
+      output: `
+        import path from 'path';
+        import foo from 'foo';\n
+        // Some random single line comment
+        var bar = 42;
+      `,
+      errors: [ {
+        line: 3,
+        column: 9,
+        message: IMPORT_ERROR_MESSAGE,
+      } ],
+      parserOptions: { ecmaVersion: 2015, sourceType: 'module' } ,
+      options: [{ 'considerComments': true, 'count': 1 }],
+    },
     {
       code: `import foo from 'foo';\nexport default function() {};`,
       output: `import foo from 'foo';\n\nexport default function() {};`,
@@ -415,7 +553,7 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
         message: IMPORT_ERROR_MESSAGE,
       } ],
       parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     },
     {
       code: `var foo = require('foo');\n@SomeDecorator(foo)\nclass Foo {}`,
@@ -426,7 +564,7 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
         message: REQUIRE_ERROR_MESSAGE,
       } ],
       parserOptions: { ecmaVersion: 2015, sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     },
     {
       code: `// issue 10042\nimport foo from 'foo';\n@SomeDecorator(foo)\nexport default class Test {}`,
@@ -437,7 +575,7 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
         message: IMPORT_ERROR_MESSAGE,
       } ],
       parserOptions: { sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     },
     {
       code: `// issue 1004\nconst foo = require('foo');\n@SomeDecorator(foo)\nexport default class Test {}`,
@@ -448,7 +586,7 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
         message: REQUIRE_ERROR_MESSAGE,
       } ],
       parserOptions: { sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     },
     testVersion('>= 6', () => ({
       code: `
@@ -472,7 +610,7 @@ ruleTester.run('newline-after-import', require('rules/newline-after-import'), {
         },
       ],
       parserOptions: { sourceType: 'module' },
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     })) || [],
   ),
 });

@@ -6,6 +6,8 @@ module.exports = {
   meta: {
     type: 'problem',
     docs: {
+      category: 'Static analysis',
+      description: 'Ensure named imports correspond to a named export in the remote file.',
       url: docsUrl('named'),
     },
     schema: [
@@ -40,7 +42,7 @@ module.exports = {
       }
 
       const imports = Exports.get(node.source.value, context);
-      if (imports == null) {
+      if (imports == null || imports.parseGoal === 'ambiguous') {
         return;
       }
 
@@ -58,7 +60,9 @@ module.exports = {
           return;
         }
 
-        const deepLookup = imports.hasDeep(im[key].name);
+        const name = im[key].name || im[key].value;
+
+        const deepLookup = imports.hasDeep(name);
 
         if (!deepLookup.found) {
           if (deepLookup.path.length > 1) {
@@ -66,9 +70,9 @@ module.exports = {
               .map(i => path.relative(path.dirname(context.getPhysicalFilename ? context.getPhysicalFilename() : context.getFilename()), i.path))
               .join(' -> ');
 
-            context.report(im[key], `${im[key].name} not found via ${deepPath}`);
+            context.report(im[key], `${name} not found via ${deepPath}`);
           } else {
-            context.report(im[key], im[key].name + ' not found in \'' + node.source.value + '\'');
+            context.report(im[key], name + ' not found in \'' + node.source.value + '\'');
           }
         }
       });
@@ -97,6 +101,7 @@ module.exports = {
         // return if it's not a string source
         || source.type !== 'Literal'
         || variableExports == null
+        || variableExports.parseGoal === 'ambiguous'
       ) {
         return;
       }

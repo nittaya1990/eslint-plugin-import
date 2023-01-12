@@ -15,6 +15,8 @@ module.exports = {
   meta: {
     type: 'suggestion',
     docs: {
+      category: 'Style guide',
+      description: 'Forbid namespace (a.k.a. "wildcard" `*`) imports.',
       url: docsUrl('no-namespace'),
     },
     fixable: 'code',
@@ -76,7 +78,7 @@ module.exports = {
             const importLocalNames = generateLocalNames(
               importNames,
               importNameConflicts,
-              namespaceVariable.name
+              namespaceVariable.name,
             );
 
             // Replace the ImportNamespaceSpecifier with a list of ImportSpecifiers

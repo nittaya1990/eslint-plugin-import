@@ -12,6 +12,8 @@ module.exports = {
   meta: {
     type: 'problem',
     docs: {
+      category: 'Static analysis',
+      description: 'Ensure imports point to a file/module that can be resolved.',
       url: docsUrl('no-unresolved'),
     },
 
@@ -27,8 +29,8 @@ module.exports = {
     const options = context.options[0] || {};
 
     function checkSourceValue(source, node) {
-      // ignore type-only imports
-      if (node.importKind === 'type') {
+      // ignore type-only imports and exports
+      if (node.importKind === 'type' || node.exportKind === 'type') {
         return;
       }
 
@@ -40,14 +42,14 @@ module.exports = {
       if (resolvedPath === undefined) {
         context.report(
           source,
-          `Unable to resolve path to module '${source.value}'.`
+          `Unable to resolve path to module '${source.value}'.`,
         );
       } else if (caseSensitive || caseSensitiveStrict) {
         const cacheSettings = ModuleCache.getSettings(context.settings);
         if (!fileExistsWithCaseSync(resolvedPath, cacheSettings, caseSensitiveStrict)) {
           context.report(
             source,
-            `Casing of ${source.value} does not match the underlying filesystem.`
+            `Casing of ${source.value} does not match the underlying filesystem.`,
           );
         }
       }

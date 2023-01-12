@@ -4,6 +4,8 @@ module.exports = {
   meta: {
     type: 'suggestion',
     docs: {
+      category: 'Style guide',
+      description: 'Forbid named default exports.',
       url: docsUrl('no-named-default'),
     },
     schema: [],
@@ -17,7 +19,7 @@ module.exports = {
             return;
           }
 
-          if (im.type === 'ImportSpecifier' && im.imported.name === 'default') {
+          if (im.type === 'ImportSpecifier' && (im.imported.name || im.imported.value) === 'default') {
             context.report({
               node: im.local,
               message: `Use default import syntax to import '${im.local.name}'.` });

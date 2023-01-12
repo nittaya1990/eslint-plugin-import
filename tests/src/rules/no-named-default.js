@@ -1,4 +1,4 @@
-import { test, SYNTAX_CASES } from '../utils';
+import { test, testVersion, SYNTAX_CASES, parsers } from '../utils';
 import { RuleTester } from 'eslint';
 
 const ruleTester = new RuleTester();
@@ -12,24 +12,24 @@ ruleTester.run('no-named-default', rule, {
     // Should ignore imported flow types
     test({
       code: 'import { type default as Foo } from "./bar";',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import { typeof default as Foo } from "./bar";',
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
 
     ...SYNTAX_CASES,
   ],
 
-  invalid: [
+  invalid: [].concat(
     /*test({
       code: 'import { default } from "./bar";',
       errors: [{
         message: 'Use default import syntax to import \'default\'.',
         type: 'Identifier',
       }],
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),*/
     test({
       code: 'import { default as bar } from "./bar";',
@@ -45,5 +45,17 @@ ruleTester.run('no-named-default', rule, {
         type: 'Identifier',
       }],
     }),
-  ],
+
+    // es2022: Arbitrary module namespae identifier names
+    testVersion('>= 8.7', () => ({
+      code: 'import { "default" as bar } from "./bar";',
+      errors: [{
+        message: 'Use default import syntax to import \'bar\'.',
+        type: 'Identifier',
+      }],
+      parserOptions: {
+        ecmaVersion: 2022,
+      },
+    })) || [],
+  ),
 });

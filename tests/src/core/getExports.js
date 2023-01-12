@@ -2,6 +2,7 @@ import { expect } from  'chai';
 import semver from 'semver';
 import sinon from 'sinon';
 import eslintPkg from 'eslint/package.json';
+import typescriptPkg from 'typescript/package.json';
 import * as tsConfigLoader from 'tsconfig-paths/lib/tsconfig-loader';
 import ExportMap from '../../../src/ExportMap';
 
@@ -343,7 +344,6 @@ describe('ExportMap', function () {
   });
 
   context('alternate parsers', function () {
-
     const configs = [
       // ['string form', { 'typescript-eslint-parser': '.ts' }],
     ];
@@ -352,7 +352,7 @@ describe('ExportMap', function () {
       configs.push(['array form', { '@typescript-eslint/parser': ['.ts', '.tsx'] }]);
     }
 
-    if (semver.satisfies(eslintPkg.version, '<6')) {
+    if (semver.satisfies(eslintPkg.version, '<6') && semver.satisfies(typescriptPkg.version, '<4')) {
       configs.push(['array form', { 'typescript-eslint-parser': ['.ts', '.tsx'] }]);
     }
 
@@ -367,7 +367,7 @@ describe('ExportMap', function () {
 
         let imports;
         before('load imports', function () {
-          this.timeout(20000);  // takes a long time :shrug:
+          this.timeout(20e3);  // takes a long time :shrug:
           sinon.spy(tsConfigLoader, 'tsConfigLoader');
           imports = ExportMap.get('./typescript.ts', context);
         });
@@ -431,6 +431,19 @@ describe('ExportMap', function () {
 
           ExportMap.parse('./baz.ts', 'export const baz = 5', differentContext);
           expect(tsConfigLoader.tsConfigLoader.callCount).to.equal(2);
+        });
+
+        it('should cache after parsing for an ambiguous module', function () {
+          const source = './typescript-declare-module.ts';
+          const parseSpy = sinon.spy(ExportMap, 'parse');
+
+          expect(ExportMap.get(source, context)).to.be.null;
+
+          ExportMap.get(source, context);
+
+          expect(parseSpy.callCount).to.equal(1);
+
+          parseSpy.restore();
         });
       });
     });

@@ -1,4 +1,4 @@
-import { getTSParsers, test, testFilePath } from '../utils';
+import { getTSParsers, parsers, test, testFilePath } from '../utils';
 import typescriptConfig from '../../../config/typescript';
 import path from 'path';
 import fs from 'fs';
@@ -82,7 +82,7 @@ ruleTester.run('no-extraneous-dependencies', rule, {
     test({
       code: 'import type MyType from "myflowtyped";',
       options: [{ packageDir: packageDirWithFlowTyped }],
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: `
@@ -90,7 +90,7 @@ ruleTester.run('no-extraneous-dependencies', rule, {
         import typeof TypeScriptModule from 'typescript';
       `,
       options: [{ packageDir: packageDirWithFlowTyped }],
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import react from "react";',
@@ -163,6 +163,23 @@ ruleTester.run('no-extraneous-dependencies', rule, {
         import 'expose-loader?exposes[]=$&exposes[]=jQuery!jquery';
       `,
       settings: { 'import/resolver': 'webpack' },
+    }),
+
+    test({
+      code: 'import "@custom-internal-alias/api/service";',
+      settings: {
+        'import/resolver': {
+          webpack: {
+            config: {
+              resolve: {
+                alias: {
+                  '@custom-internal-alias': testFilePath('internal-modules'),
+                },
+              },
+            },
+          },
+        },
+      },
     }),
   ],
   invalid: [
@@ -375,13 +392,25 @@ ruleTester.run('no-extraneous-dependencies', rule, {
         message: `'esm-package-not-in-pkg-json' should be listed in the project's dependencies. Run 'npm i -S esm-package-not-in-pkg-json' to add it`,
       }],
     }),
+
+    test({
+      code: 'import "not-a-dependency"',
+      settings: {
+        'import/resolver': { node: { paths: [ path.join(__dirname, '../../files') ] } },
+        'import/internal-regex': '^not-a-dependency.*',
+      },
+      options: [{ includeInternal: true }],
+      errors: [{
+        message: '\'not-a-dependency\' should be listed in the project\'s dependencies. Run \'npm i -S not-a-dependency\' to add it',
+      }],
+    }),
   ],
 });
 
 describe('TypeScript', () => {
   getTSParsers()
     // Type-only imports were added in TypeScript ESTree 2.23.0
-    .filter((parser) => parser !== require.resolve('typescript-eslint-parser'))
+    .filter((parser) => parser !== parsers.TS_OLD)
     .forEach((parser) => {
       const parserConfig = {
         parser,
@@ -406,6 +435,18 @@ describe('TypeScript', () => {
               message: "'a' should be listed in the project's dependencies, not devDependencies.",
             }],
           }, parserConfig)),
+
+          test(Object.assign({
+            code: 'import type T from "a";',
+            options: [{ 
+              packageDir: packageDirWithTypescriptDevDependencies,
+              devDependencies: false,
+              includeTypes: true,
+            }],
+            errors: [{
+              message: "'a' should be listed in the project's dependencies, not devDependencies.",
+            }],
+          }, parserConfig)),
         ],
       });
     });
@@ -416,14 +457,23 @@ typescriptRuleTester.run('no-extraneous-dependencies typescript type imports', r
     test({
       code: 'import type MyType from "not-a-dependency";',
       filename: testFilePath('./no-unused-modules/typescript/file-ts-a.ts'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
     test({
       code: 'import type { MyType } from "not-a-dependency";',
       filename: testFilePath('./no-unused-modules/typescript/file-ts-a.ts'),
-      parser: require.resolve('babel-eslint'),
+      parser: parsers.BABEL_OLD,
     }),
   ],
   invalid: [
+    test({
+      code: 'import type { MyType } from "not-a-dependency";',
+      options: [{ includeTypes: true }],
+      filename: testFilePath('./no-unused-modules/typescript/file-ts-a.ts'),
+      parser: parsers.BABEL_OLD,
+      errors: [{
+        message: `'not-a-dependency' should be listed in the project's dependencies. Run 'npm i -S not-a-dependency' to add it`,
+      }],
+    }),
   ],
 });

@@ -2,6 +2,9 @@ name: 'Tests: node.js'
 
 on: [pull_request, push]
 
+permissions:
+  contents: read
+
 jobs:
   matrix:
     runs-on: ubuntu-latest
@@ -18,7 +21,7 @@ jobs:
 
   latest:
     needs: [matrix]
-    name: 'latest majors'
+    name: 'majors'
     runs-on: ubuntu-latest
 
     strategy:
@@ -26,6 +29,7 @@ jobs:
       matrix:
         node-version: ${{ fromJson(needs.matrix.outputs.latest) }}
         eslint:
+          - 8
           - 7
           - 6
           - 5
@@ -33,6 +37,11 @@ jobs:
           - 3
           - 2
         include:
+          - node-version: 'lts/*'
+            eslint: 7
+            ts-parser: 4
+            env:
+              TS_PARSER: 4
           - node-version: 'lts/*'
             eslint: 7
             ts-parser: 3
@@ -44,24 +53,44 @@ jobs:
             env:
               TS_PARSER: 2
         exclude:
+          - node-version: 15
+            eslint: 8
+          - node-version: 13
+            eslint: 8
+          - node-version: 11
+            eslint: 8
+          - node-version: 10
+            eslint: 8
+          - node-version: 9
+            eslint: 8
           - node-version: 9
             eslint: 7
           - node-version: 8
+            eslint: 8
+          - node-version: 8
             eslint: 7
+          - node-version: 7
+            eslint: 8
           - node-version: 7
             eslint: 7
           - node-version: 7
             eslint: 6
           - node-version: 6
+            eslint: 8
+          - node-version: 6
             eslint: 7
           - node-version: 6
             eslint: 6
+          - node-version: 5
+            eslint: 8
           - node-version: 5
             eslint: 7
           - node-version: 5
             eslint: 6
           - node-version: 5
             eslint: 5
+          - node-version: 4
+            eslint: 8
           - node-version: 4
             eslint: 7
           - node-version: 4
@@ -70,11 +99,12 @@ jobs:
             eslint: 5
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: ljharb/actions/node/install@main
         continue-on-error: ${{ matrix.eslint == 4 && matrix.node-version == 4 }}
         name: 'nvm install ${{ matrix.node-version }} && npm install, with eslint ${{ matrix.eslint }}'
         env:
+          NPM_CONFIG_LEGACY_PEER_DEPS: ${{ matrix.node-version == 11 && false || true }}
           ESLINT_VERSION: ${{ matrix.eslint }}
           TRAVIS_NODE_VERSION: ${{ matrix.node-version }}
         with:
@@ -83,7 +113,7 @@ jobs:
           skip-ls-check: true
       - run: npm run pretest
       - run: npm run tests-only
-      - uses: codecov/codecov-action@v1
+      - uses: codecov/codecov-action@v3
 
   node:
     name: 'node 4+'

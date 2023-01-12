@@ -1,7 +1,7 @@
 import path from 'path';
 
 import resolve from 'eslint-module-utils/resolve';
-import { isBuiltIn, isExternalModule, isScoped, isScopedModule } from '../core/importType';
+import { isBuiltIn, isExternalModule, isScoped } from '../core/importType';
 import moduleVisitor from 'eslint-module-utils/moduleVisitor';
 import docsUrl from '../docsUrl';
 
@@ -63,6 +63,8 @@ module.exports = {
   meta: {
     type: 'suggestion',
     docs: {
+      category: 'Style guide',
+      description: 'Ensure consistent use of file extension within the import path.',
       url: docsUrl('extensions'),
     },
 
@@ -131,14 +133,14 @@ module.exports = {
       const slashCount = file.split('/').length - 1;
 
       if (slashCount === 0)  return true;
-      if (isScopedModule(file) && slashCount <= 1) return true;
+      if (isScoped(file) && slashCount <= 1) return true;
       return false;
     }
 
-    function checkFileExtension(source) {
+    function checkFileExtension(source, node) {
       // bail if the declaration doesn't have a source, e.g. "export { foo };", or if it's only partially typed like in an editor
       if (!source || !source.value) return;
-      
+
       const importPathWithQueryString = source.value;
 
       // don't enforce anything on builtins
@@ -159,12 +161,13 @@ module.exports = {
       // determine if this is a module
       const isPackage = isExternalModule(
         importPath,
-        context.settings,
         resolve(importPath, context),
-        context
+        context,
       ) || isScoped(importPath);
 
       if (!extension || !importPath.endsWith(`.${extension}`)) {
+        // ignore type-only imports and exports
+        if (node.importKind === 'type' || node.exportKind === 'type') return;
         const extensionRequired = isUseOfExtensionRequired(extension, isPackage);
         const extensionForbidden = isUseOfExtensionForbidden(extension);
         if (extensionRequired && !extensionForbidden) {

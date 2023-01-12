@@ -1,11 +1,24 @@
-import { test, getTSParsers, getNonDefaultParsers } from '../utils';
+import { test, getTSParsers, getNonDefaultParsers, testFilePath, parsers } from '../utils';
 
 import { RuleTester } from 'eslint';
 import eslintPkg from 'eslint/package.json';
 import semver from 'semver';
 import flatMap from 'array.prototype.flatmap';
+import { resolve } from 'path';
+import { default as babelPresetFlow } from 'babel-preset-flow';
+
 
 const ruleTester = new RuleTester();
+const flowRuleTester = new RuleTester({
+  parser: resolve(__dirname, '../../../node_modules/babel-eslint'),
+  parserOptions: {
+    babelOptions: {
+      configFile: false,
+      babelrc: false,
+      presets: [babelPresetFlow],
+    },
+  },
+});
 const rule = require('rules/order');
 
 function withoutAutofixOutput(test) {
@@ -675,6 +688,47 @@ ruleTester.run('order', rule, {
         alphabetize: { order: 'desc' },
       }],
     }),
+    // Option alphabetize: {order: 'asc'} and move nested import entries closer to the main import entry
+    test({
+      code: `
+        import a from "foo";
+        import c from "foo/bar";
+        import d from "foo/barfoo";
+        import b from "foo-bar";
+      `,
+      options: [{ alphabetize: { order: 'asc' } }],
+    }),
+    // Option alphabetize: {order: 'asc'} and move nested import entries closer to the main import entry
+    test({
+      code: `
+        import a from "foo";
+        import c from "foo/foobar/bar";
+        import d from "foo/foobar/barfoo";
+        import b from "foo-bar";
+      `,
+      options: [{ alphabetize: { order: 'asc' } }],
+    }),
+    // Option alphabetize: {order: 'desc'} and move nested import entries closer to the main import entry
+    test({
+      code: `
+        import b from "foo-bar";
+        import d from "foo/barfoo";
+        import c from "foo/bar";
+        import a from "foo";
+      `,
+      options: [{ alphabetize: { order: 'desc' } }],
+    }),
+    // Option alphabetize: {order: 'desc'} and move nested import entries closer to the main import entry with file names having non-alphanumeric characters.
+    test({
+      code: `
+        import b from "foo-bar";
+        import c from "foo,bar";
+        import d from "foo/barfoo";
+        import a from "foo";`,
+      options: [{
+        alphabetize: { order: 'desc' },
+      }],
+    }),
     // Option alphabetize with newlines-between: {order: 'asc', newlines-between: 'always'}
     test({
       code: `
@@ -847,6 +901,211 @@ ruleTester.run('order', rule, {
         ],
       }),
     ]),
+    // Using `@/*` to alias internal modules
+    test({
+      code: `
+        import fs from 'fs';
+
+        import express from 'express';
+
+        import service from '@/api/service';
+
+        import fooParent from '../foo';
+
+        import fooSibling from './foo';
+
+        import index from './';
+
+        import internalDoesNotExistSoIsUnknown from '@/does-not-exist';
+      `,
+      options: [
+        {
+          groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index', 'unknown'],
+          'newlines-between': 'always',
+        },
+      ],
+      settings: {
+        'import/resolver': {
+          webpack: {
+            config: {
+              resolve: {
+                alias: {
+                  '@': testFilePath('internal-modules'),
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+    // Option pathGroup[].distinctGroup: 'true' does not prevent 'position' properties from affecting the visible grouping
+    test({
+      code: `
+        import A from 'a';
+
+        import C from 'c';
+
+        import B from 'b';
+      `,
+      options: [
+        {
+          'newlines-between': 'always',
+          'distinctGroup': true,
+          'pathGroupsExcludedImportTypes': [],
+          'pathGroups': [
+            {
+              'pattern': 'a',
+              'group': 'external',
+              'position': 'before',
+            },
+            {
+              'pattern': 'b',
+              'group': 'external',
+              'position': 'after',
+            },
+          ],
+        },
+      ],
+    }),
+    // Option pathGroup[].distinctGroup: 'false' should prevent 'position' properties from affecting the visible grouping
+    test({
+      code: `
+        import A from 'a';
+        import C from 'c';
+        import B from 'b';
+      `,
+      options: [
+        {
+          'newlines-between': 'always',
+          'distinctGroup': false,
+          'pathGroupsExcludedImportTypes': [],
+          'pathGroups': [
+            {
+              'pattern': 'a',
+              'group': 'external',
+              'position': 'before',
+            },
+            {
+              'pattern': 'b',
+              'group': 'external',
+              'position': 'after',
+            },
+          ],
+        },
+      ],
+    }),
+    // Option pathGroup[].distinctGroup: 'false' should prevent 'position' properties from affecting the visible grouping 2
+    test({
+      code: `
+        import A from 'a';
+
+        import b from './b';
+        import B from './B';
+      `,
+      options: [
+        {
+          'newlines-between': 'always',
+          'distinctGroup': false,
+          'pathGroupsExcludedImportTypes': [],
+          'pathGroups': [
+            {
+              'pattern': 'a',
+              'group': 'external',
+            },
+            {
+              'pattern': 'b',
+              'group': 'internal',
+              'position': 'before',
+            },
+          ],
+        },
+      ],
+    }),
+    // Option pathGroup[].distinctGroup: 'false' should prevent 'position' properties from affecting the visible grouping 3
+    test({
+      code: `
+        import A from "baz";
+        import B from "Bar";
+        import C from "Foo";
+
+        import D from "..";
+        import E from "../";
+        import F from "../baz";
+        import G from "../Bar";
+        import H from "../Foo";
+
+        import I from ".";
+        import J from "./baz";
+        import K from "./Bar";
+        import L from "./Foo";
+      `,
+      options: [
+        {
+          'alphabetize': {
+            'caseInsensitive': false,
+            'order': 'asc',
+          },
+          'newlines-between': 'always',
+          'groups': [
+            ['builtin', 'external', 'internal', 'unknown', 'object', 'type'],
+            'parent',
+            ['sibling', 'index'],
+          ],
+          'distinctGroup': false,
+          'pathGroupsExcludedImportTypes': [],
+          'pathGroups': [
+            {
+              'pattern': './',
+              'group': 'sibling',
+              'position': 'before',
+            },
+            {
+              'pattern': '.',
+              'group': 'sibling',
+              'position': 'before',
+            },
+            {
+              'pattern': '..',
+              'group': 'parent',
+              'position': 'before',
+            },
+            {
+              'pattern': '../',
+              'group': 'parent',
+              'position': 'before',
+            },
+            {
+              'pattern': '[a-z]*',
+              'group': 'external',
+              'position': 'before',
+            },
+            {
+              'pattern': '../[a-z]*',
+              'group': 'parent',
+              'position': 'before',
+            },
+            {
+              'pattern': './[a-z]*',
+              'group': 'sibling',
+              'position': 'before',
+            },
+          ],
+        },
+      ],
+    }),
+    // orderImportKind option that is not used
+    test({
+      code: `
+            import B from './B';
+            import b from './b';
+          `,
+      options: [
+        {
+          'alphabetize': { order: 'asc', orderImportKind: 'asc', 'caseInsensitive': true },
+        },
+      ],
+    }),
+
   ],
   invalid: [
     // builtin before external module (require)
@@ -2021,6 +2280,74 @@ ruleTester.run('order', rule, {
         },
       ],
     }),
+    test({
+      code: `
+        import path from 'path';
+        import { namespace } from '@namespace';
+        import { a } from 'a';
+        import { b } from 'b';
+        import { c } from 'c';
+        import { d } from 'd';
+        import { e } from 'e';
+        import { f } from 'f';
+        import { g } from 'g';
+        import { h } from 'h';
+        import { i } from 'i';
+        import { j } from 'j';
+        import { k } from 'k';`,
+      output: `
+        import path from 'path';
+
+        import { namespace } from '@namespace';
+
+        import { a } from 'a';
+
+        import { b } from 'b';
+
+        import { c } from 'c';
+
+        import { d } from 'd';
+
+        import { e } from 'e';
+
+        import { f } from 'f';
+
+        import { g } from 'g';
+
+        import { h } from 'h';
+
+        import { i } from 'i';
+
+        import { j } from 'j';
+        import { k } from 'k';`,
+      options: [
+        {
+          groups: [
+            'builtin',
+            'external',
+            'internal',
+          ],
+          pathGroups: [
+            { pattern: '@namespace', group: 'external', position: 'after' },
+            { pattern: 'a', group: 'internal', position: 'before' },
+            { pattern: 'b', group: 'internal', position: 'before' },
+            { pattern: 'c', group: 'internal', position: 'before' },
+            { pattern: 'd', group: 'internal', position: 'before' },
+            { pattern: 'e', group: 'internal', position: 'before' },
+            { pattern: 'f', group: 'internal', position: 'before' },
+            { pattern: 'g', group: 'internal', position: 'before' },
+            { pattern: 'h', group: 'internal', position: 'before' },
+            { pattern: 'i', group: 'internal', position: 'before' },
+          ],
+          'newlines-between': 'always',
+          pathGroupsExcludedImportTypes: ['builtin'],
+        },
+      ],
+      settings: {
+        'import/internal-regex': '^(a|b|c|d|e|f|g|h|i|j|k)(\\/|$)',
+      },
+      errors: Array.from({ length: 11 }, () => 'There should be at least one empty line between import groups'),
+    }),
 
     // reorder fix cannot cross non import or require
     test(withoutAutofixOutput({
@@ -2193,6 +2520,27 @@ ruleTester.run('order', rule, {
         message: '`bar` import should occur before import of `Bar`',
       }],
     }),
+    // Option alphabetize: {order: 'asc'} and move nested import entries closer to the main import entry
+    test({
+      code: `
+        import a from "foo";
+        import b from "foo-bar";
+        import c from "foo/bar";
+        import d from "foo/barfoo";
+      `,
+      options: [{
+        alphabetize: { order: 'asc' },
+      }],
+      output: `
+        import a from "foo";
+        import c from "foo/bar";
+        import d from "foo/barfoo";
+        import b from "foo-bar";
+      `,
+      errors: [{
+        message: '`foo-bar` import should occur after import of `foo/barfoo`',
+      }],
+    }),
     // Option alphabetize {order: 'asc': caseInsensitive: true}
     test({
       code: `
@@ -2237,6 +2585,23 @@ ruleTester.run('order', rule, {
         message: '`foo` import should occur before import of `Bar`',
       }],
     }),
+    // Option alphabetize {order: 'asc'} and require with member expression
+    test({
+      code: `
+        const b = require('./b').get();
+        const a = require('./a');
+      `,
+      output: `
+        const a = require('./a');
+        const b = require('./b').get();
+      `,
+      options: [{
+        alphabetize: { order: 'asc' },
+      }],
+      errors: [{
+        message: '`./a` import should occur before import of `./b`',
+      }],
+    }),
     // Alphabetize with parent paths
     test({
       code: `
@@ -2253,6 +2618,62 @@ ruleTester.run('order', rule, {
       }],
       errors: [{
         message: '`..` import should occur before import of `../a`',
+      }],
+    }),
+    // Option pathGroup[].distinctGroup: 'false' should error when newlines are incorrect 2
+    test({
+      code: `
+        import A from 'a';
+        import C from './c';
+      `,
+      output: `
+        import A from 'a';
+
+        import C from './c';
+      `,
+      options: [
+        {
+          'newlines-between': 'always',
+          'distinctGroup': false,
+          'pathGroupsExcludedImportTypes': [],
+        },
+      ],
+      errors: [{
+        message: 'There should be at least one empty line between import groups',
+      }],
+    }),
+    // Option pathGroup[].distinctGroup: 'false' should error when newlines are incorrect 2
+    test({
+      code: `
+        import A from 'a';
+
+        import C from 'c';
+      `,
+      output: `
+        import A from 'a';
+        import C from 'c';
+      `,
+      options: [
+        {
+          'newlines-between': 'always',
+          'distinctGroup': false,
+          'pathGroupsExcludedImportTypes': [],
+          'pathGroups': [
+            {
+              'pattern': 'a',
+              'group': 'external',
+              'position': 'before',
+            },
+            {
+              'pattern': 'c',
+              'group': 'external',
+              'position': 'after',
+            },
+          ],
+        },
+      ],
+      errors: [{
+        message: 'There should be no empty line within import group',
       }],
     }),
     // Alphabetize with require
@@ -2284,7 +2705,7 @@ ruleTester.run('order', rule, {
 context('TypeScript', function () {
   getNonDefaultParsers()
     // Type-only imports were added in TypeScript ESTree 2.23.0
-    .filter((parser) => parser !== require.resolve('typescript-eslint-parser'))
+    .filter((parser) => parser !== parsers.TS_OLD)
     .forEach((parser) => {
       const parserConfig = {
         parser,
@@ -2481,6 +2902,29 @@ context('TypeScript', function () {
               },
             ],
           }),
+          test({
+            code: `
+              import { useLazyQuery, useQuery } from "@apollo/client";
+              import { useEffect } from "react";
+            `,
+            options: [
+              {
+                groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index', 'object', 'type'],
+                pathGroups: [
+                  {
+                    pattern: 'react',
+                    group: 'external',
+                    position: 'before',
+                  },
+                ],
+                'newlines-between': 'always',
+                alphabetize: {
+                  order: 'asc',
+                  caseInsensitive: true,
+                },
+              },
+            ],
+          }),
         ],
         invalid: [
           // Option alphabetize: {order: 'asc'}
@@ -2513,8 +2957,8 @@ context('TypeScript', function () {
             errors: [
               {
                 message: semver.satisfies(eslintPkg.version, '< 3')
-                  ? '`bar` import should occur after import of `Bar`'
-                  : /(`bar` import should occur after import of `Bar`)|(`Bar` import should occur before import of `bar`)/,
+                  ? '`bar` import should occur after type import of `Bar`'
+                  : /(`bar` import should occur after type import of `Bar`)|(`Bar` type import should occur before import of `bar`)/,
               },
             ],
           }),
@@ -2584,10 +3028,10 @@ context('TypeScript', function () {
             ],
             errors: semver.satisfies(eslintPkg.version, '< 3') ? [
               { message: '`Bar` import should occur before import of `bar`' },
-              { message: '`Bar` import should occur before import of `foo`' },
+              { message: '`Bar` type import should occur before type import of `foo`' },
             ] : [
               { message: /(`Bar` import should occur before import of `bar`)|(`bar` import should occur after import of `Bar`)/ },
-              { message: /(`Bar` import should occur before import of `foo`)|(`foo` import should occur after import of `Bar`)/ },
+              { message: /(`Bar` type import should occur before type import of `foo`)|(`foo` type import should occur after type import of `Bar`)/ },
             ],
           }),
           // Option alphabetize: {order: 'desc'} with type group
@@ -2621,10 +3065,10 @@ context('TypeScript', function () {
             ],
             errors: semver.satisfies(eslintPkg.version, '< 3') ? [
               { message: '`bar` import should occur before import of `Bar`' },
-              { message: '`foo` import should occur before import of `Bar`' },
+              { message: '`foo` type import should occur before type import of `Bar`' },
             ] : [
               { message: /(`bar` import should occur before import of `Bar`)|(`Bar` import should occur after import of `bar`)/ },
-              { message: /(`foo` import should occur before import of `Bar`)|(`Bar` import should occur after import of `foo`)/ },
+              { message: /(`foo` type import should occur before type import of `Bar`)|(`Bar` type import should occur after import of type `foo`)/ },
             ],
           }),
           // warns for out of order unassigned imports (warnOnUnassignedImports enabled)
@@ -2695,9 +3139,9 @@ context('TypeScript', function () {
               }
             `,
             errors: [{
-              message: '`fs` import should occur before import of `path`',
+              message: '`fs` type import should occur before type import of `path`',
             },{
-              message: '`fs` import should occur before import of `path`',
+              message: '`fs` type import should occur before type import of `path`',
             }],
             ...parserConfig,
             options: [
@@ -2709,4 +3153,84 @@ context('TypeScript', function () {
         ],
       });
     });
+});
+
+flowRuleTester.run('order', rule, {
+  valid: [
+    test({
+      options: [
+        {
+          alphabetize: { order: 'asc', orderImportKind: 'asc' },
+        },
+      ],
+      code: `
+        import type {Bar} from 'common';
+        import typeof {foo} from 'common';
+        import {bar} from 'common';
+      `,
+    })],
+  invalid: [
+    test({
+      options: [
+        {
+          alphabetize: { order: 'asc', orderImportKind: 'asc' },
+        },
+      ],
+      code: `
+        import type {Bar} from 'common';
+        import {bar} from 'common';
+        import typeof {foo} from 'common';
+      `,
+      output: `
+        import type {Bar} from 'common';
+        import typeof {foo} from 'common';
+        import {bar} from 'common';
+      `,
+      errors: [{
+        message: '`common` typeof import should occur before import of `common`',
+      }],
+    }),
+    test({
+      options: [
+        {
+          alphabetize: { order: 'asc', orderImportKind: 'desc' },
+        },
+      ],
+      code: `
+        import type {Bar} from 'common';
+        import {bar} from 'common';
+        import typeof {foo} from 'common';
+      `,
+      output: `
+        import {bar} from 'common';
+        import typeof {foo} from 'common';
+        import type {Bar} from 'common';
+      `,
+      errors: [{
+        message: '`common` type import should occur after typeof import of `common`',
+      }],
+    }),
+    test({
+      options: [
+        {
+          alphabetize: { order: 'asc', orderImportKind: 'asc' },
+        },
+      ],
+      code: `
+        import type {Bar} from './local/sub';
+        import {bar} from './local/sub';
+        import {baz} from './local-sub';
+        import typeof {foo} from './local/sub';
+      `,
+      output: `
+        import type {Bar} from './local/sub';
+        import typeof {foo} from './local/sub';
+        import {bar} from './local/sub';
+        import {baz} from './local-sub';
+      `,
+      errors: [{
+        message: '`./local/sub` typeof import should occur before import of `./local/sub`',
+      }],
+    }),
+  ],
 });

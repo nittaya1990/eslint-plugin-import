@@ -19,10 +19,14 @@ function isStaticValue(arg) {
     (arg.type === 'TemplateLiteral' && arg.expressions.length === 0);
 }
 
+const dynamicImportErrorMessage = 'Calls to import() should use string literals';
+
 module.exports = {
   meta: {
     type: 'suggestion',
     docs: {
+      category: 'Static analysis',
+      description: 'Forbid `require()` calls with expressions.',
       url: docsUrl('no-dynamic-require'),
     },
     schema: [
@@ -55,9 +59,18 @@ module.exports = {
         if (options.esmodule && isDynamicImport(node)) {
           return context.report({
             node,
-            message: 'Calls to import() should use string literals',
+            message: dynamicImportErrorMessage,
           });
         }
+      },
+      ImportExpression(node) {
+        if (!options.esmodule || isStaticValue(node.source)) {
+          return;
+        }
+        return context.report({
+          node,
+          message: dynamicImportErrorMessage,
+        });
       },
     };
   },

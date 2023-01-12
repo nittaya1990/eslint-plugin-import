@@ -38,14 +38,14 @@ try {
       };
     } catch (e) {
       const { listFilesToProcess: originalListFilesToProcess } = require('eslint/lib/util/glob-util');
-      
+
       listFilesToProcess = function (src, extensions) {
         const patterns = src.reduce((carry, pattern) => {
           return carry.concat(extensions.map((extension) => {
             return /\*\*|\*\./.test(pattern) ? pattern : `${pattern}/**/*${extension}`;
           }));
         }, src.slice());
-    
+
         return originalListFilesToProcess(patterns);
       };
     }
@@ -248,7 +248,7 @@ const prepareImportsAndExports = (srcFiles, context) => {
         }
         const localImport = imports.get(key) || new Set();
         value.declarations.forEach(({ importedSpecifiers }) =>
-          importedSpecifiers.forEach(specifier => localImport.add(specifier))
+          importedSpecifiers.forEach(specifier => localImport.add(specifier)),
         );
         imports.set(key, localImport);
       });
@@ -273,8 +273,10 @@ const prepareImportsAndExports = (srcFiles, context) => {
   exportAll.forEach((value, key) => {
     value.forEach(val => {
       const currentExports = exportList.get(val);
-      const currentExport = currentExports.get(EXPORT_ALL_DECLARATION);
-      currentExport.whereUsed.add(key);
+      if (currentExports) {
+        const currentExport = currentExports.get(EXPORT_ALL_DECLARATION);
+        currentExport.whereUsed.add(key);
+      }
     });
   });
 };
@@ -362,7 +364,10 @@ const fileIsInPkg = file => {
   };
 
   const checkPkgFieldObject = pkgField => {
-    const pkgFieldFiles = values(pkgField).map(value => join(basePath, value));
+    const pkgFieldFiles = values(pkgField)
+      .filter((value) => typeof value !== 'boolean')
+      .map(value => join(basePath, value));
+
     if (includes(pkgFieldFiles, file)) {
       return true;
     }
@@ -406,7 +411,11 @@ const fileIsInPkg = file => {
 module.exports = {
   meta: {
     type: 'suggestion',
-    docs: { url: docsUrl('no-unused-modules') },
+    docs: {
+      category: 'Helpful warnings',
+      description: 'Forbid modules without exports, or exports without matching import in another module.',
+      url: docsUrl('no-unused-modules'),
+    },
     schema: [{
       properties: {
         src: {
@@ -564,13 +573,13 @@ module.exports = {
         if (exportStatement.whereUsed.size < 1) {
           context.report(
             node,
-            `exported declaration '${value}' not used within other modules`
+            `exported declaration '${value}' not used within other modules`,
           );
         }
       } else {
         context.report(
           node,
-          `exported declaration '${value}' not used within other modules`
+          `exported declaration '${value}' not used within other modules`,
         );
       }
     };
@@ -604,7 +613,7 @@ module.exports = {
           if (specifiers.length > 0) {
             specifiers.forEach(specifier => {
               if (specifier.exported) {
-                newExportIdentifiers.add(specifier.exported.name);
+                newExportIdentifiers.add(specifier.exported.name || specifier.exported.value);
               }
             });
           }
@@ -715,8 +724,8 @@ module.exports = {
           if (astNode.source) {
             resolvedPath = resolve(astNode.source.raw.replace(/('|")/g, ''), context);
             astNode.specifiers.forEach(specifier => {
-              const name = specifier.local.name;
-              if (specifier.local.name === DEFAULT) {
+              const name = specifier.local.name || specifier.local.value;
+              if (name === DEFAULT) {
                 newDefaultImports.add(resolvedPath);
               } else {
                 newImports.set(name, resolvedPath);
@@ -753,7 +762,7 @@ module.exports = {
                 specifier.type === IMPORT_NAMESPACE_SPECIFIER) {
               return;
             }
-            newImports.set(specifier.imported.name, resolvedPath);
+            newImports.set(specifier.imported.name || specifier.imported.value, resolvedPath);
           });
         }
       });
@@ -942,7 +951,7 @@ module.exports = {
       },
       'ExportNamedDeclaration': node => {
         node.specifiers.forEach(specifier => {
-          checkUsage(node, specifier.exported.name);
+          checkUsage(node, specifier.exported.name || specifier.exported.value);
         });
         forEachDeclarationIdentifier(node.declaration, (name) => {
           checkUsage(node, name);

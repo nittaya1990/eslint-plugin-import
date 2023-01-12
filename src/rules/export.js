@@ -1,6 +1,7 @@
 import ExportMap, { recursivePatternCapture } from '../ExportMap';
 import docsUrl from '../docsUrl';
 import includes from 'array-includes';
+import flatMap from 'array.prototype.flatmap';
 
 /*
 Notes on TypeScript namespaces aka TSModuleDeclaration:
@@ -35,20 +36,87 @@ const tsTypePrefix = 'type:';
  * @returns {boolean}
  */
 function isTypescriptFunctionOverloads(nodes) {
-  const types = new Set(Array.from(nodes, node => node.parent.type));
-  return (
-    types.has('TSDeclareFunction') &&
-    (
-      types.size === 1 ||
-      (types.size === 2 && types.has('FunctionDeclaration'))
+  const nodesArr = Array.from(nodes);
+  const types = new Set(nodesArr.map(node => node.parent.type));
+
+  const idents = flatMap(nodesArr, (node) => (
+    node.declaration && (
+      node.declaration.type === 'TSDeclareFunction' // eslint 6+
+      || node.declaration.type === 'TSEmptyBodyFunctionDeclaration' // eslint 4-5
     )
-  );
+      ? node.declaration.id.name
+      : []
+  ));
+  if (new Set(idents).size !== idents.length) {
+    return true;
+  }
+
+  if (!types.has('TSDeclareFunction')) {
+    return false;
+  }
+  if (types.size === 1) {
+    return true;
+  }
+  if (types.size === 2 && types.has('FunctionDeclaration')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Detect merging Namespaces with Classes, Functions, or Enums like:
+ * ```ts
+ * export class Foo { }
+ * export namespace Foo { }
+ * ```
+ * @param {Set<Object>} nodes
+ * @returns {boolean}
+ */
+function isTypescriptNamespaceMerging(nodes) {
+  const types = new Set(Array.from(nodes, node => node.parent.type));
+  const noNamespaceNodes = Array.from(nodes).filter((node) => node.parent.type !== 'TSModuleDeclaration');
+
+  return types.has('TSModuleDeclaration')
+    && (
+      types.size === 1
+      // Merging with functions
+      || (types.size === 2 && (types.has('FunctionDeclaration') || types.has('TSDeclareFunction')))
+      || (types.size === 3 && types.has('FunctionDeclaration') && types.has('TSDeclareFunction'))
+      // Merging with classes or enums
+      || (types.size === 2 && (types.has('ClassDeclaration') || types.has('TSEnumDeclaration')) && noNamespaceNodes.length === 1)
+    );
+}
+
+/**
+ * Detect if a typescript namespace node should be reported as multiple export:
+ * ```ts
+ * export class Foo { }
+ * export function Foo();
+ * export namespace Foo { }
+ * ```
+ * @param {Object} node
+ * @param {Set<Object>} nodes
+ * @returns {boolean}
+ */
+function shouldSkipTypescriptNamespace(node, nodes) {
+  const types = new Set(Array.from(nodes, node => node.parent.type));
+
+  return !isTypescriptNamespaceMerging(nodes)
+    && node.parent.type === 'TSModuleDeclaration'
+    && (
+      types.has('TSEnumDeclaration')
+      || types.has('ClassDeclaration')
+      || types.has('FunctionDeclaration')
+      || types.has('TSDeclareFunction')
+    );
 }
 
 module.exports = {
   meta: {
     type: 'problem',
     docs: {
+      category: 'Helpful warnings',
+      description: 'Forbid any invalid exports, i.e. re-export of the same name.',
       url: docsUrl('export'),
     },
     schema: [],
@@ -85,15 +153,19 @@ module.exports = {
     }
 
     return {
-      'ExportDefaultDeclaration': (node) => addNamed('default', node, getParent(node)),
+      ExportDefaultDeclaration(node) {
+        addNamed('default', node, getParent(node));
+      },
 
-      'ExportSpecifier': (node) => addNamed(
-        node.exported.name,
-        node.exported,
-        getParent(node.parent)
-      ),
+      ExportSpecifier(node) {
+        addNamed(
+          node.exported.name || node.exported.value,
+          node.exported,
+          getParent(node.parent),
+        );
+      },
 
-      'ExportNamedDeclaration': function (node) {
+      ExportNamedDeclaration(node) {
         if (node.declaration == null) return;
 
         const parent = getParent(node);
@@ -119,7 +191,7 @@ module.exports = {
         }
       },
 
-      'ExportAllDeclaration': function (node) {
+      ExportAllDeclaration(node) {
         if (node.source == null) return; // not sure if this is ever true
 
         // `export * as X from 'path'` does not conflict
@@ -146,7 +218,7 @@ module.exports = {
         if (!any) {
           context.report(
             node.source,
-            `No named exports found in module '${node.source.value}'.`
+            `No named exports found in module '${node.source.value}'.`,
           );
         }
       },
@@ -156,15 +228,17 @@ module.exports = {
           for (const [name, nodes] of named) {
             if (nodes.size <= 1) continue;
 
-            if (isTypescriptFunctionOverloads(nodes)) continue;
+            if (isTypescriptFunctionOverloads(nodes) || isTypescriptNamespaceMerging(nodes)) continue;
 
             for (const node of nodes) {
+              if (shouldSkipTypescriptNamespace(node, nodes)) continue;
+
               if (name === 'default') {
                 context.report(node, 'Multiple default exports.');
               } else {
                 context.report(
                   node,
-                  `Multiple exports of name '${name.replace(tsTypePrefix, '')}'.`
+                  `Multiple exports of name '${name.replace(tsTypePrefix, '')}'.`,
                 );
               }
             }
